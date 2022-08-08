@@ -26,8 +26,9 @@ python3 -m pip install pytest tables scikit-learn
 ```
 
 **Current dependencies used:**
+
 | Package      | Version | Comments |
-+ :----------: | :-----: | :------: |
+| :----------: | :-----: | :------: |
 | joblib       | 1.1.0   |          |
 | numexpr      | 2.8.1   |          |
 | numpy        | 1.22.3  |          |
