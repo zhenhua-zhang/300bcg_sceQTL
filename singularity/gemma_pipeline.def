@@ -1,0 +1,30 @@
+Bootstrap: library
+From: ubuntu:18.04
+
+
+%files
+  prepare_gemma_input.py /opt
+  post_prrocessing.r /opt
+
+
+%post
+  # Install Python3, R, and Snakemake.
+  sudo apt-get update
+  sudo apt-get install -y python3.7 snakemake r-base
+
+  # Install R packages.
+  R --slave -e 'install.packages(c("tidyverse", "data.table", "qvalue"))'
+
+  # Install Python packages.
+  python3 -m pip install matplotlib
+
+
+%labels
+  Author: Zhenhua Zhang
+  E-mail: zhenhua.zhang217@gmail.com
+  Version: v0.0.1
+
+
+%help
+  This is a container to do expression quantitative trait loci (eQTL)
+  identification by GEMMA (v0.97)
