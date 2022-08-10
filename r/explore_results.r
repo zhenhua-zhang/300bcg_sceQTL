@@ -27,8 +27,7 @@ if (FALSE) {
 #' Load eQTL summary statistics
 #'
 #'@description A utility function to load summary statistics from the disk
-load_eqtl_tab <- function(dir, fdr = 0.05, fdr_col = "global_corrected_pValue",
-                          other_info = NULL) {
+load_eqtl_tab <- function(dir, fdr = 0.05, fdr_col = "global_corrected_pValue", other_info = NULL) {
   joinby <- c(
     "snp_id", "ensembl_gene_id", "feature_start", "feature_end",
     "feature_chromosome", "feature_id", "gene_name", "feature_strand",
@@ -139,68 +138,6 @@ draw_upsetplot <- function(qtltabs, save_to = "./", groupby = "feature_id", widt
 }
 
 
-#' Combine the QTL tables for a heatmap plot
-#'
-#'@description Function to plot Figure x
-make_cor_tab <- function(qtltabs, overwrite = TRUE, save_to = "./") {
-  if (is.null(names(qtltabs))) stop("The qtltabs should be a named list")
-
-  tab_path <- file.path(save_to, "shared_QTL_correlation_table.csv")
-  if (file.exists(tab_path) && !overwrite) {
-    cat("[I]: Found", tab_path, "so loading it from the disk.\n")
-    cor_tab <- data.table::fread(tab_path)
-  } else {
-    cor_tab <- names(qtltabs) %>%
-      combn(2) %>%
-      t() %>%
-      as.data.frame() %>%
-      apply(1, function(pair, .qtltabs) {
-        tab_x <- pair[1]
-        tab_y <- pair[2]
-
-        cor_res <- .qtltabs[[tab_x]] %>%
-          dplyr::inner_join(.qtltabs[[tab_y]], by = c("snp_id", "ensembl_gene_id")) %>%
-          dplyr::select(dplyr::matches("beta.[xy]")) %>%
-          (function(df) cor.test(df$beta.x, df$beta.y))
-
-        data.frame(x = tab_x, y = tab_y, p_value = cor_res$p.value, correlation = cor_res$estimate)
-      }, .qtltabs = qtltabs) %>%
-      Reduce(rbind, .) %>%
-      as.data.table() %>%
-      (function(df) {
-        comp <- c(df$x, df$y) %>% unique()
-        ext_df <- data.frame(x = comp, y = comp, p_value = 0, correlation = 1)
-        rbind(df, ext_df)
-      })
-    cor_tab %>% data.table::fwrite(tab_path, quote = FALSE)
-  }
-
-  cor_tab
-}
-
-
-#' Plot a heatmap of share eQTL
-#'
-#' @description Function to plot Figure x
-draw_heatmap <- function(cortab, save_to = "./", height = 7, width = 7, override = TRUE) {
-  fig_path <- file.path(save_to, "shared_QTL_correlation_heatmap.png")
-  if (!file.exists(fig_path) || override) {
-    ghmap <- cortab %>%
-      dplyr::mutate(x = factor(x, unique(.$x)), y = factor(y, unique(.$x))) %>%
-      ggplot() +
-      geom_tile(aes(x = x, y = y, fill = correlation)) +
-      scale_fill_gradient2(low = "blue3", mid = "white", high = "brown4") +
-      labs(x = NULL, y = NULL) +
-      theme_classic() +
-      theme(axis.text.x.bottom = element_text(angle = 45, vjust = 1, hjust = 1))
-
-    ggplot2::ggsave(fig_path, plot = ghmap, width = width, height = height)
-  } else {
-    cat("[W]: Found", fig_path, "Skipping it ...\n")
-  }
-}
-
-
 #' Functional enrichment by GARFIELD
 garfield_test <- function(eqtl_tab, garf_dir, gwas_trait = "trait", snp_chr_col = "snp_chromosome", snp_pos_col = "snp_position",
                           snp_pval_col = "global_corrected_pValue", save_to = "./garfield_out") {
@@ -285,59 +222,66 @@ plot_goshifter <- function(fpath) {
 }
 
 
-# Harmonize variants
-harmonize_vars <- function(eqtls, gwas, alt_af_db, eqtl_pval_col = "p_value", eqtl_pval = 0.1, clump = TRUE,
-                           clump_kb = 50, clump_r2 = 0.8, clump_bfile = NULL, chunk = 1000) {
+#' Harmonize variants
+harmonize_vars <- function(eqtl, gwas, alt_af_db, eqtl_pval_col = "p_value", eqtl_pval = 0.1,
+                           clump = TRUE, clump_kb = 20, clump_r2 = 0.8, clump_bfile = NULL, do_proxy = TRUE,
+                           plink_bin = "plink", bcftools_bin = "bcftools") {
+  # Set up bcftools and plink path
+  gwasvcf::set_bcftools(bcftools_bin)
+  gwasvcf::set_plink(plink_bin)
+
   # Select and rename columns in the eQTL summary statistics.
   tar_col <- c(
     "SNP" = "snp_id", "beta" = "beta", "se" = "beta_se", "effect_allele" = "assessed_allele", "eaf" = "maf", "Phenotype" = "gene_name",
-    "chr" = "snp_chromosome", "position" = "snp_position", "samplesize" = "n_samples", "pval" = eqtl_pval_col
+    "chr" = "snp_chromosome", "pos" = "snp_position", "samplesize" = "n_samples", "pval" = eqtl_pval_col
   )
 
   # Load the eQTL summary statistics as the exposure dataset.
-  eqtl_tab <- dplyr::select(eqtls, dplyr::all_of(tar_col)) %>%
+  eqtl_tab <- dplyr::select(eqtl, dplyr::all_of(tar_col)) %>%
     dplyr::filter(pval < eqtl_pval, !is.na(pval)) %>%
     dplyr::mutate(eaf = alt_af_db[SNP]) %>%
     TwoSampleMR::format_data(type = "exposure")
 
   # Sample size
-  smpsize <- lapply(gwas, function(e) e[[4]]) %>% unlist()
+  gwas_path <- lapply(gwas, function(e) e[[1]]) %>% unlist()
+  sample_size_dict <- lapply(gwas, function(e) e[[2]]) %>% unlist()
 
   # Fetch public available GWAS.
   tar_snps <- unique(eqtl_tab$SNP)
-  nr_tar_snps <- length(tar_snps)
-  if (nr_tar_snps > chunk) {
-    nr_chunk <- nr_tar_snps / chunk + 1
-    gwas_tab <- split(tar_snps, 1:nr_chunk) %>% lapply(function(p) TwoSampleMR::extract_outcome_data(p, names(gwas))) %>% Reduce(rbind, .)
-  } else {
-    gwas_tab <- TwoSampleMR::extract_outcome_data(eqtl_tab$SNP, names(gwas))
-  }
+  do_proxy <- ifelse(do_proxy && !is.null(clump_bfile), "no", "yes")
+  gwas_tab <- lapply(gwas_path, function(path, .rsid, .pval) {
+    outcome_info <- path %>% basename() %>% stringr::str_remove_all(".vcf.gz") %>% stringr::str_split("_", n = 3, simplify = TRUE)
+    gwasvcf::query_gwas(path, rsid = .rsid, proxies = do_proxy, bfile = proxy_ld_file, threads = 4) %>% 
+      gwasvcf::query_gwas(pval = .pval) %>%
+      gwasglue::gwasvcf_to_TwoSampleMR("outcome") %>%
+      dplyr::filter(!is.na(effect_allele.outcome), !is.na(other_allele.outcome), nchar(effect_allele.outcome) == 1, nchar(other_allele.outcome) == 1) %>%
+      dplyr::mutate(outcome = outcome_info[2], id.outcome = outcome_info[3])
+  }, .rsid = tar_snps, .pval = 0.5) %>%
+  Reduce(rbind, .)
 
   # Harmonized exposure and outcome dataset.
-  hm_tab <- dplyr::filter(gwas_tab, !is.na(effect_allele.outcome), !is.na(other_allele.outcome), nchar(effect_allele.outcome) == 1, nchar(other_allele.outcome) == 1) %>%
-    TwoSampleMR::harmonise_data(eqtl_tab, .) %>%
-    dplyr::mutate(samplesize.outcome = dplyr::if_else(is.na(samplesize.outcome), as.integer(smpsize[id.outcome]), as.integer(samplesize.outcome)))
+  suppressMessages({ # Here we suppress messages from the package to make the stdout less mess.
+    hm_tab <- TwoSampleMR::harmonise_data(eqtl_tab, gwas_tab) %>%
+      dplyr::mutate(samplesize.outcome = dplyr::if_else(is.na(samplesize.outcome), as.integer(sample_size_dict[id.outcome]), as.integer(samplesize.outcome)))
+  })
 
   # Do clumping
-  if (clump) {
-    if (!is.null(clump_bfile)) {
-      clump_cols <- c("rsid" = "SNP", "pval" = "pval.exposure", "trait_id" = "exposure")
-      clump_snps <- eqtl_tab %>%
-        dplyr::select(dplyr::all_of(clump_cols)) %>%
-        ieugwasr::ld_clump(plink_bin = "plink", bfile = clump_bfile, clump_kb = clump_kb, clump_r2 = clump_r2) %>%
-        dplyr::select(rsid, trait_id) %>%
-        dplyr::mutate(clump_keep = TRUE) %>%
-        dplyr::left_join(eqtl_tab, ., by = c("SNP" = "rsid", "exposure" = "trait_id")) %>%
-        dplyr::mutate(clump_keep = dplyr::if_else(is.na(clump_keep), FALSE, clump_keep))
-    } else {
-      clump_snps <- TwoSampleMR::clump_data(eqtl_tab, clump_kb = clump_kb, clump_r2 = clump_r2) %>%
-        dplyr::select(SNP, exposure, dplyr::all_of(c("clump_keep" = "mr_keep.exposure"))) %>%
-        dplyr::distinct() %>%
-        dplyr::left_join(eqtl_tab, ., by = c("SNP", "exposure")) %>%
-        dplyr::mutate(clump_keep = dplyr::if_else(is.na(clump_keep), FALSE, clump_keep))
-    }
-
-    hm_tab <- clump_snps %>% dplyr::select(SNP, exposure, clump_keep) %>% dplyr::left_join(hm_tab, ., by = c("SNP", "exposure"))
+  if (clump && !is.null(clump_bfile)) {
+    clump_snps <- dplyr::select(hm_tab, SNP, pval.exposure, exposure, outcome, mr_keep) %>% dplyr::filter(mr_keep) %>% dplyr::group_by(exposure, outcome)
+    clump_cols <- c("rsid" = "SNP", "pval" = "pval.exposure", "id" = "exposure")
+    hm_tab <- dplyr::summarise(clump_snps, clumped = {
+      tryCatch({
+        dplyr::cur_data_all() %>%
+          dplyr::select(dplyr::all_of(clump_cols)) %>%
+          ieugwasr::ld_clump(plink_bin = plink_bin, bfile = clump_bfile, clump_kb = clump_kb, clump_r2 = clump_r2) %>%
+          dplyr::select(dplyr::all_of(c("SNP" = "rsid"))) %>%
+          dplyr::mutate(clump_keep = TRUE)
+      }, error = function(e) data.frame(SNP = NULL, clump_keep = NULL))
+    }) %>%
+      data.table::as.data.table() %>%
+      dplyr::rename_with(.cols = dplyr::starts_with("clumped."), .fn = ~ stringr::str_remove_all(.x, "clumped.")) %>%
+      dplyr::right_join(hm_tab, by = c("outcome", "exposure", "SNP")) %>%
+      dplyr::mutate(clump_keep = dplyr::if_else(is.na(clump_keep), FALSE, clump_keep))
   }
 
   hm_tab
@@ -345,7 +289,7 @@ harmonize_vars <- function(eqtls, gwas, alt_af_db, eqtl_pval_col = "p_value", eq
 
 
 #' Mendelian randomization analysis
-mr_test <- function(hm_dat, prune = FALSE, min_exp_pval = 5e-8, min_snps = 5) {
+mr_test <- function(hm_dat, min_exp_pval = 5e-8, min_snps = 5, prune = FALSE) {
   # Do prune
   if (prune) hm_dat <- TwoSampleMR::power_prune(hm_dat)
 
@@ -355,12 +299,13 @@ mr_test <- function(hm_dat, prune = FALSE, min_exp_pval = 5e-8, min_snps = 5) {
 
   # A list to store results
   mr_res <- list(hm_dat = NULL, mr = NULL, mr_single_snp = NULL, mr_pleio = NULL, mr_hetero = NULL)
-
   if (nrow(hm_dat)) {
-    mr_res[["mr"]] <- TwoSampleMR::mr(hm_dat) # Basic MR analysis
-    mr_res[["mr_single_snp"]] <- TwoSampleMR::mr_singlesnp(hm_dat) # Single SNP test
-    mr_res[["mr_pleio"]] <- TwoSampleMR::mr_pleiotropy_test(hm_dat) # Horizontal pleiotropy
-    mr_res[["mr_hetero"]] <- TwoSampleMR::mr_heterogeneity(hm_dat) # Check heterogeneity
+    suppressMessages({
+      mr_res[["mr"]] <- TwoSampleMR::mr(hm_dat) # Basic MR analysis
+      mr_res[["mr_single_snp"]] <- TwoSampleMR::mr_singlesnp(hm_dat) # Single SNP test
+      mr_res[["mr_pleio"]] <- TwoSampleMR::mr_pleiotropy_test(hm_dat) # Horizontal pleiotropy
+      mr_res[["mr_hetero"]] <- TwoSampleMR::mr_heterogeneity(hm_dat) # Check heterogeneity
+    })
   }
 
   return(mr_res)
@@ -381,23 +326,10 @@ plot_mrres <- function(mrpath, save_to = "./") {
       per_exposure <- dplyr::cur_group()$exposure
       per_outcome <- dplyr::cur_group()$outcome
 
-      per_mr_persnp <- dplyr::cur_data_all() %>%
-        dplyr::filter(!duplicated(SNP)) %>%
-        as.data.frame()
+      per_mr_persnp <- dplyr::cur_data_all() %>% dplyr::filter(!duplicated(SNP)) %>% as.data.frame()
 
-      all_mr_sig <- per_mr_persnp %>%
-        dplyr::filter(stringr::str_detect(SNP, "^All ")) %>%
-        dplyr::mutate(is_sig = p < 0.05) %>%
-        dplyr::select(is_sig) %>%
-        unlist() %>%
-        sum()
-
-      any_snp_sig <- per_mr_persnp %>%
-        dplyr::filter(!stringr::str_detect(SNP, "^All ")) %>%
-        dplyr::mutate(is_sig = p < 0.05) %>%
-        dplyr::select(is_sig) %>%
-        unlist() %>%
-        sum()
+      all_mr_sig <- per_mr_persnp %>% dplyr::filter(stringr::str_detect(SNP, "^All ")) %>% dplyr::mutate(is_sig = p < 0.05) %>% dplyr::select(is_sig) %>% unlist() %>% sum()
+      any_snp_sig <- per_mr_persnp %>% dplyr::filter(!stringr::str_detect(SNP, "^All ")) %>% dplyr::mutate(is_sig = p < 0.05) %>% dplyr::select(is_sig) %>% unlist() %>% sum()
 
       to_plot <- !is.na(all_mr_sig) && all_mr_sig == 2 && !is.na(any_snp_sig) && any_snp_sig > 0
       if (to_plot) {
@@ -413,13 +345,8 @@ plot_mrres <- function(mrpath, save_to = "./") {
         # MR plot
         fig_path <- file.path(save_to, paste("mr_scatter", per_exposure, per_outcome_xx, "pdf", sep = "."))
         if (!file.exists(fig_path)) {
-          per_mr_all <- mr_all_tab %>%
-            dplyr::filter(exposure == per_exposure, outcome == per_outcome) %>%
-            as.data.frame()
-
-          per_hm_tab <- hm_tab %>%
-            dplyr::filter(exposure == per_exposure, outcome == per_outcome) %>%
-            as.data.frame()
+          per_mr_all <- mr_all_tab %>% dplyr::filter(exposure == per_exposure, outcome == per_outcome) %>% as.data.frame()
+          per_hm_tab <- hm_tab %>% dplyr::filter(exposure == per_exposure, outcome == per_outcome) %>% as.data.frame()
 
           p <- TwoSampleMR::mr_scatter_plot(per_mr_all, per_hm_tab)
           ggsave(fig_path, plot = p[[1]], width = 7, height = 7)
@@ -436,7 +363,7 @@ plot_mrres <- function(mrpath, save_to = "./") {
 #' Fetch data for coloc analysis from the harmonized dataset
 #'
 fetch_coloc_data <- function(hm_dat, what, warn_minp = 5e-5) {
-  pos_cols <- c("SNP", "pos")
+  pos_cols <- c("SNP", "pos.exposure")
   src_cols <- c("beta", "se", "eaf", "samplesize")
 
   cols <- c(paste(src_cols, what, sep = "."), pos_cols)
@@ -617,51 +544,47 @@ cell_type_vec <- c("Monocytes", "CD4T", "CD8T", "NK", "B") # , "pDC", "mDC")
 # All comparisons used in the analysis.
 condition_vec <- c("T0_LPS.vs.T0_RPMI", "T3m_LPS.vs.T0_RPMI", "T3m_LPS.vs.T3m_RPMI", "T3m_RPMI.vs.T0_RPMI")
 
-
 # Public GWAS list
-pub_gwas_vec <- list(
-  # Trait, year, abbrev., sample_size
-  # Autoimmune disease
-  "ebi-a-GCST010681" = c("Type 1 diabetes", 2022, "T1D", NA),
-  "ieu-a-31" = c("Inflammatory bowel disease", 2015, "IBD", NA),
-  "ieu-a-30" = c("Crohn's disease", 2015, "CrD", NA),
-  "ieu-a-32" = c("Ulcerative colitis", 2015, "UC", NA),
-  "ieu-a-996" = c("Atopic dermatitis", 2014, "AD", NA), # Eczema
-  "ukb-a-100" = c("Psoriasis", 2017, "Ps", NA),
-  "ukb-b-17670" = c("Multiple sclerosis", 2019, "MS", NA),
-  "ebi-a-GCST90013534" = c("Rheumatoid arthritis", 2020, "RA", NA),
+pub_gwas_list <- list(
+  # Cancers
+  "ieu-b-4965" = c("2021_ColorectalCancer_ieu-b-4965.vcf.gz", NA),
+  "ieu-b-4809" = c("2021_ProstateCancer_ieu-b-4809.vcf.gz", NA),
+  "ieu-b-4874" = c("2021_BladderCancer_ieu-b-4874.vcf.gz", NA),
+  "ieu-a-1082" = c("2013_ThyroidCancer_ieu-a-1082.vcf.gz", NA),
+  "ieu-b-4963" = c("2017_OvarianCancer_ieu-b-4963.vcf.gz", NA),
+  "ieu-a-966" = c("2014_LungCancer_ieu-a-966.vcf.gz", NA),
 
-  # Immune disorders
-  "ebi-a-GCST90014325" = c("Asthma", 2017, "Asthma", NA),
+  # Autoimmune disease
+  # "ebi-a-GCST010681" = c("2022_Type1Diabetes_ebi-a-GCST010681.vcf.gz", NA), No GWAS VCF available, TODO: format available SS into GWAS VCF format.
+  "ukb-d-M13_RHEUMA" = c("2018_RheumatoidArthritis_ukb-d-M13_RHEUMA.vcf.gz", NA),
+  "ieu-a-31" = c("2015_InflammatoryBowelDisease_ieu-a-31.vcf.gz", NA),
+  "ukb-b-17670" = c("2019_MultipleSclerosis_ukb-b-17670.vcf.gz", NA),
+  "ieu-a-996" = c("2014_AtopicDermatitis_ieu-a-996.vcf.gz", NA),
+  "ieu-a-32" = c("2015_UlcerativeColitis_ieu-a-32.vcf.gz", NA),
+  "ieu-a-30" = c("2015_CrohnsDisease_ieu-a-30.vcf.gz", NA),
+  "ukb-a-100" = c("2017_Psoriasis_ukb-a-100.vcf.gz", NA),
 
   # Infectious disease
-  # COVID-19 release (very severe respiratory confirmed vs population)
-  "ebi-a-GCST011075" = c("COVID-19 RELEASE 5", 2020, "COVID", NA),
-
-  # Cancers
-  "ieu-a-966" = c("Lung cancer", 2014, "LC", NA),
-  "ieu-b-4809" = c("Prostate cancer", 2021, "PC", NA),
-  "ieu-a-1082" = c("Thyroid cancer", 2013, "TC", NA),
-  "ieu-b-4963" = c("Ovarian cancer", 2017, "OC", NA),
-  "ieu-b-4965" = c("Colorectal cancer", 2021, "CC", NA),
-  "ieu-b-4874" = c("Bladder cancer", 2021, "BC", NA),
+  "ebi-a-GCST010780" = c("2020_COVID19Release4_ebi-a-GCST010780.vcf.gz", NA),
 
   # Brain disorders
-  "ieu-b-5067" = c("Alzheimer's diseases", 2022, "AlD", NA),
-  "ieu-b-42" = c("Schizophrenia", 2014, "Sch", NA),
+  "ieu-b-5067" = c("2022_AlzheimerDiseases_ieu-b-5067.vcf.gz", NA),
+  "ieu-b-42" = c("2014_Schizophrenia_ieu-b-42.vcf.gz", NA),
 
   # Other genetic-related disease
-  # "ebi-a-GCST001790" = c("Gout disease", 2012, "GD", NA),
-  "ebi-a-GCST006867" = c("Type 2 diabetes", 2018, "T2D", NA),
-  "ieu-a-7" = c("Coronary heart disease", 2013, "ChD", NA),
+  "ebi-a-GCST006867" = c("2018_Type2Diabetes_ebi-a-GCST006867.vcf.gz", NA),
+  "ukb-d-J10_ASTHMA" = c("2018_Asthma_ukb-d-J10_ASTHMA.vcf.gz", NA),
+  "ieu-a-7" = c("2013_CoronaryHeartDisease_ieu-a-7.vcf.gz", NA),
+  "ukb-a-107" = c("2017_GoutDisease_ukb-a-107.vcf.gz", NA),
 
   # Others traits
-  "ieu-a-89" = c("Height", 2014, "Height", NA),
-  "ieu-b-40" = c("Body mass index", 2018, "BMI", NA),
-  "ieu-b-109" = c("HDL cholesterol", 2020, "HDL", 403943),
-  "ieu-b-110" = c("LDL cholesterol", 2020, "LDL", 440546),
-  "ieu-b-111" = c("Triglycerides", 2020, "Tri", 441016)
-)
+  "ieu-a-89" = c("2014_Height_ieu-a-89.vcf.gz", NA),
+  "ieu-b-40" = c("2018_BodyMassIndex_ieu-b-40.vcf.gz", NA),
+  "ieu-b-111" = c("2020_Triglycerides_ieu-b-111.vcf.gz", 441016),
+  "ieu-b-109" = c("2020_HDLCholesterol_ieu-b-109.vcf.gz", 403943),
+  "ieu-b-110" = c("2020_LDLCholesterol_ieu-b-110.vcf.gz", 440546)
+) %>%
+lapply(function(e) c(file.path(proj_dir, "inputs/public_gwas", e[1]), e[2]))
 
 # Reference genotypes panel for local clumping
 eur_1kg_geno <- file.path(proj_dir, "inputs/reference/genotypes/EUR")
@@ -670,21 +593,17 @@ eur_1kg_geno <- file.path(proj_dir, "inputs/reference/genotypes/EUR")
 afdb_path <- file.path(proj_dir, "inputs/genotypes/300BCG_sub40_imp_hg38_ref_allele_frequency.csv")
 afdb <- data.table::fread(afdb_path) %>% tibble::deframe()
 
-
 # GARFIELD database
 # gfout_dir <- file.path(proj_dir, "outputs/pseudo_bulk/outcomes/garfield")
 # gfdb_dir <- file.path(proj_dir, "outputs/garfield-data-grch38")
-
 
 # List to store results.
 qtltab_list <- list()
 gfres_list <- list()
 mrres_list <- list()
 ccres_list <- list()
-peres_list <- list()
 
-
-mode <- "normal"
+mode <- "interaction"
 for (mode in mode_vec) {
   for (cell_type in cell_type_vec) {
     if (mode == "normal") {
@@ -714,15 +633,9 @@ for (mode in mode_vec) {
 
   save_to <- file.path(proj_dir, "outputs/pseudo_bulk/outcomes", mode)
 
-  # FIXME: Using MASH to estimate the shared signals
-  # cat("[I]: Estimating correlations for", mode, "eQTLs ...\n")
-  # qtlcor_tab <- make_cor_tab(qtltab_list, save_to = save_to) %>%
-  #   dplyr::mutate(x = stringr::str_remove(x, paste0(mode, "_")), y = stringr::str_remove(y, paste0(mode, "_")))
-  # cat("[I]: Drawing heatmap for the correlation of", mode, "eQTLs ...\n")
-  # draw_heatmap(qtlcor_tab, save_to, 3.25, 4.5)
-
-  cat("[I]: Drawing upset plot", mode, "eQTLs ...\n")
-  draw_upsetplot(qtltab_list, save_to, "feature_id", 7, 5)
+  # Number of shared eGenes
+  cat("[I]: Drawing upset plot", mode, "eQTL ...\n")
+  draw_upsetplot(qtltab_list, save_to, "QTL", 9, 5)
 
   # Concordance between two runs.
   .tmp <- combn(names(qtltab_list), 2) %>%
@@ -745,13 +658,8 @@ for (mode in mode_vec) {
   .tmp <- lapply(names(qtltab_list), function(pr_run_id) {
     tmp_tab <- qtltab_list[[pr_run_id]] %>%
       (function(dat) {
-        top_qtl_gene_name <- dat %>%
-          dplyr::filter(!is.na(global_corrected_pValue)) %>%
-          dplyr::select(gene_name) %>%
-          unlist() %>%
-          as.vector()
-
-        dplyr::filter(dat, gene_name %in% top_qtl_gene_name, p_value < 0.1, !stringr::str_starts(gene_name, "HLA"))
+        top_egenes <- dplyr::filter(dat, !is.na(global_corrected_pValue)) %>% dplyr::select(gene_name) %>% unlist() %>% as.vector()
+        dplyr::filter(dat, gene_name %in% top_egenes, p_value < 0.1, !stringr::str_starts(gene_name, "HLA"))
       })
 
     pr_save_to <- file.path(save_to, pr_run_id)
@@ -760,7 +668,7 @@ for (mode in mode_vec) {
     hm_save_to <- file.path(pr_save_to, "harmonized_data.csv")
     if (!file.exists(hm_save_to)) {
       cat("[I]: Harmonizing variants ...\n")
-      hm_dat <- harmonize_vars(tmp_tab, pub_gwas_vec, afdb, clump_bfile = eur_1kg_geno)
+      hm_dat <- harmonize_vars(tmp_tab, pub_gwas_list, afdb, clump_bfile = eur_1kg_geno, plink_bin = "plink-quiet")
       data.table::fwrite(hm_dat, hm_save_to, verbose = FALSE, showProgress = FALSE)
     } else {
       hm_dat <- data.table::fread(hm_save_to)
@@ -797,12 +705,8 @@ for (mode in mode_vec) {
   .tmp <- lapply(names(qtltab_list), function(pr_run_id) {
     tmp_tab <- qtltab_list[[pr_run_id]] %>%
       (function(dat) {
-        top_qtl_gene_name <- dat %>%
-          dplyr::filter(!is.na(global_corrected_pValue)) %>%
-          dplyr::select(gene_name) %>%
-          unlist() %>%
-          as.vector()
-        dplyr::filter(dat, gene_name %in% top_qtl_gene_name, p_value < 0.1, !stringr::str_starts(gene_name, "HLA"))
+        top_egenes <- dplyr::filter(dat, !is.na(global_corrected_pValue)) %>% dplyr::select(gene_name) %>% unlist() %>% as.vector()
+        dplyr::filter(dat, gene_name %in% top_egenes, p_value < 0.1, !stringr::str_starts(gene_name, "HLA"))
       })
 
     pr_save_to <- file.path(save_to, pr_run_id)
@@ -896,65 +800,4 @@ for (mode in mode_vec) {
       }
     }
   }
-}
-
-
-# Check eQTL across conditions.
-if (FALSE) {
-  all_qtl <- Reduce(rbind, qtltab_list) %>%
-    dplyr::select(
-      snp_id, gene_name, p_value, beta, beta_se, cell_type, condition,
-      global_corrected_pValue, QTL
-    )
-
-  tar_qtl <- all_qtl %>%
-    dplyr::filter(!is.na(global_corrected_pValue)) %$%
-    QTL %>%
-    unique
-
-  top_qtl <- all_qtl %>%
-    dplyr::mutate(QTL = paste(snp_id, gene_name, sep = "_")) %>%
-    dplyr::filter(QTL %in% tar_qtl)
-
-  top_qtl_count <- top_qtl %>%
-    dplyr::group_by(snp_id, gene_name) %>%
-    dplyr::summarise(summary = {
-      n_sig_snp <- dplyr::cur_data() %>%
-        dplyr::filter(p_value < 0.05) %>%
-        nrow()
-
-      sig_in <- dplyr::cur_data() %>%
-        dplyr::filter(p_value < 0.05) %>%
-        dplyr::select(cell_type, condition) %>%
-        dplyr::distinct() %>%
-        dplyr::mutate(tmp = paste(cell_type, condition, sep = "@")) %$%
-        tmp %>%
-        paste0(collapse = ";")
-
-      data.frame(n_significant_snps = n_sig_snp, significant_in = sig_in)
-    }) %>%
-    data.table::as.data.table() %>%
-    dplyr::rename_with(dplyr::starts_with("summary."), .fn = ~ stringr::str_remove_all(.x, "summary.")) %>%
-    dplyr::filter(n_significant_snps > 0)
-
-  data.table::fwrite(top_qtl_count, "top_eqtl_info_across_conditions.csv")
-}
-
-
-if (FALSE) {
-  hm_dat_prune <- hm_dat %>%
-    dplyr::mutate(samplesize.outcome = dplyr::if_else(is.na(samplesize.outcome), as.integer(smpsize[id.outcome]), as.integer(samplesize.outcome))) %>%
-    dplyr::filter(mr_keep, pval.exposure < 1e-5, exposure == "ADCY3") %>%
-    TwoSampleMR::power_prune()
-
-  mr <- hm_dat_prune %>% TwoSampleMR::mr()
-  mr_persnp <- hm_dat_prune %>% TwoSampleMR::mr_singlesnp()
-
-  hm_dat_prune %>% dplyr::filter(id.outcome == "ieu-b-40")
-
-  p <- TwoSampleMR::mr_scatter_plot(mr, hm_dat_prune)
-  ggsave("mr_scatter.pdf", p[[13]])
-
-  p <- TwoSampleMR::mr_forest_plot(mr_persnp)
-  ggsave("mr_forest.pdf", p[[13]])
 }

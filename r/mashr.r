@@ -49,11 +49,11 @@ prep_mashr_data <- function(tab_list) {
 
       nm_vec <- c("beta", "QTL")
       names(nm_vec) <- c(x, "QTL")
-      x_bhat <- x_tab %>% dplyr::select(beta, QTL) %>% dplyr::rename(nm_vec)
+      x_bhat <- x_tab %>% dplyr::select(beta, QTL) %>% dplyr::rename(dplyr::all_of(nm_vec))
 
       nm_vec <- c("beta_se", "QTL")
       names(nm_vec) <- c(x, "QTL")
-      x_shat <- x_tab %>% dplyr::select(beta_se, QTL) %>% dplyr::rename(nm_vec)
+      x_shat <- x_tab %>% dplyr::select(beta_se, QTL) %>% dplyr::rename(dplyr::all_of(nm_vec))
 
       x <- list(Bhat = x_bhat, Shat = x_shat)
     }
@@ -62,11 +62,11 @@ prep_mashr_data <- function(tab_list) {
 
     nm_vec <- c("beta", "QTL")
     names(nm_vec) <- c(y, "QTL")
-    y_bhat <- y_tab %>% dplyr::select(beta, QTL) %>% dplyr::rename(nm_vec)
+    y_bhat <- y_tab %>% dplyr::select(beta, QTL) %>% dplyr::rename(dplyr::all_of(nm_vec))
 
     nm_vec <- c("beta_se", "QTL")
     names(nm_vec) <- c(y, "QTL")
-    y_shat <- y_tab %>% dplyr::select(beta_se, QTL) %>% dplyr::rename(nm_vec)
+    y_shat <- y_tab %>% dplyr::select(beta_se, QTL) %>% dplyr::rename(dplyr::all_of(nm_vec))
 
     x$Bhat <- dplyr::inner_join(x$Bhat, y_bhat, by = "QTL")
     x$Shat <- dplyr::inner_join(x$Shat, y_shat, by = "QTL")
@@ -160,33 +160,63 @@ plot_mashr <- function(mm, share_factor = c(0.3, 0.4, 0.5, 0.6, 0.7, 0.8), overr
 }
 
 
-#' Main steps
-proj_dir <- "~/Documents/projects/wp_bcg_eqtl"
-mode <- "pseudo_bulk"
-model_vec <- c("normal", "interaction")
-celltype_vec <- c("Monocytes", "CD4T", "CD8T", "NK", "B")
+#
+## Main steps.
+#
+proj_dir <- "/home/zzhang/Documents/projects/wp_bcg_eqtl"
+in_dir <- file.path(proj_dir, "outputs/pseudo_bulk")
+
+# Two model used in the analysis.
+mode_vec <- c("normal", "interaction")
+
+# Main cell types.
+cell_type_vec <- c("Monocytes", "CD4T", "CD8T", "NK", "B") # , "pDC", "mDC")
+
+# All comparisons used in the analysis.
+condition_vec <- c("T0_LPS.vs.T0_RPMI", "T3m_LPS.vs.T0_RPMI", "T3m_LPS.vs.T3m_RPMI", "T3m_RPMI.vs.T0_RPMI")
+
 override <- TRUE
 
-qtl_tab_list <- list()
-for (model in model_vec) {
-  for (celltype in celltype_vec) {
-    qtl_tab_path <- file.path(proj_dir, "outputs", mode, model, celltype)
-    run_id <- paste(model, celltype, sep = "_")
-    qtl_tab_list[[run_id]] <- load_eqtl_tab(qtl_tab_path, fdr = 0.1)
-  }
+for (mode in mode_vec) {
+  mode <- "interaction"
+  save_to <- file.path(proj_dir, "outputs/pseudo_bulk/outcomes", mode, "mashr")
+  if (!dir.exists(save_to)) dir.create(save_to, recursive = TRUE)
 
-  out_dir <- file.path(proj_dir, "outputs", mode, "outcomes", model, "mashr")
-  if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
+  mashr_res_path <- file.path(save_to, "mashr_res.Rdata")
+  if (!file.exists(mashr_res_path) || override) {
+    qtltab_list <- list()
+    for (cell_type in cell_type_vec) {
+      if (mode == "normal") {
+        root_dir <- file.path(in_dir, mode, cell_type)
+        run_id <- paste(mode, cell_type, sep = "_")
 
-  mashr_res_path <- file.path(out_dir, "mashr_res.Rdata")
-  if (file.exists(mashr_res_path)) {
-    load(mashr_res_path)
-  } else {
-    mashr_data <- prep_mashr_data(qtl_tab_list)
+        if (file.exists(file.path(root_dir, "top_qtl_results_all_FDR.txt"))) {
+          cat("[I]: Loading results from", root_dir, "...\n")
+          qtltab_list[[run_id]] <- load_eqtl_tab(root_dir, 0.05, other_info = c("cell_type" = cell_type))
+        } else {
+          cat("[W]: Not top QTL results available for", run_id, "Skipping ...\n")
+        }
+      } else {
+        for (condition in condition_vec) {
+          root_dir <- file.path(in_dir, mode, cell_type, condition)
+          run_id <- paste(mode, cell_type, condition, sep = "_")
+
+          if (file.exists(file.path(root_dir, "top_qtl_results_all_FDR.txt"))) {
+            cat("[I]: Loading results from", root_dir, "...\n")
+            qtltab_list[[run_id]] <- load_eqtl_tab(root_dir, 0.05, other_info = c("cell_type" = cell_type, "condition" = condition))
+          } else {
+            cat("[W]: Not top QTL results available for", run_id, "Skipping ...\n")
+          }
+        }
+      }
+    }
+
+    mashr_data <- prep_mashr_data(qtltab_list)
     mashr_res <- exec_mashr(mashr_data, sig_pval = 0.01)
     save(mashr_res, file = mashr_res_path)
+  } else {
+    load(mashr_res_path)
   }
 
-  plot_mashr(mashr_res$alter_model, seq(1, 9) / 10, save_to = out_dir)
-  break
+  plot_mashr(mashr_res$alter_model, seq(1, 9) / 10, override = TRUE, save_to = save_to)
 }

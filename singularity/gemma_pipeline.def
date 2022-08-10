@@ -26,5 +26,5 @@ From: ubuntu:18.04
 
 
 %help
-  This is a container to do expression quantitative trait loci (eQTL)
+  This is a container to perform expression quantitative trait loci (eQTL)
   identification by GEMMA (v0.97)

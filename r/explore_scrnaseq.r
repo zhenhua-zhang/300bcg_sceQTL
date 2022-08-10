@@ -1,5 +1,6 @@
 #!/usr/bin/env Rscript
 library(Seurat)
+library(magrittr)
 library(tidyverse)
 library(data.table)
 library(RColorBrewer)
@@ -7,16 +8,13 @@ library(RColorBrewer)
 
 #' Draw a plot to show the cell propoptions
 #'
-draw_cellprop <- function(obj, discard_cells = c("Undefined", "Platelet"),
-                          save_to = "./", width = 6, height = 5) {
+draw_cellprop <- function(obj, discard_cells = c("Undefined", "Platelet"), width = 6, height = 5, save_to = "./") {
   cpp_tab <- obj@meta.data %>%
     dplyr::filter(status == "singlet") %>%
     dplyr::group_by(time, stim, ids) %>%
     dplyr::summarise(cpp = {
-      n_pcond <- n()
-      n_pcell_pcond <- cur_data() %$%
-        clusters1 %>%
-        table()
+      n_pcond <- dplyr::n()
+      n_pcell_pcond <- dplyr::cur_data()$clusters1 %>% table()
 
       data.frame(n_pcell_pcond / n_pcond)
     }) %>%
@@ -34,10 +32,7 @@ draw_cellprop <- function(obj, discard_cells = c("Undefined", "Platelet"),
     scale_color_manual(values = c("darkblue", "darkred")) +
     theme_classic()
 
-  ggsave(
-    file.path(save_to, "cell_prop.pdf"), plot = g_cpp, width = width,
-    height = height
-  )
+  ggsave(file.path(save_to, "cell_prop.pdf"), g_cpp, width = width, height = height)
 }
 
 
@@ -52,12 +47,11 @@ pbmc <- readRDS(so_path)
 
 Idents(pbmc) <- "clusters1"
 
-#' Draw the UMAP
+
+# Draw the UMAP
 g_umap <- DimPlot(pbmc, reduction = "umap", raster = FALSE)
-ggsave(
-  file.path(proj_dir, "sc_rnaseq_umap.pdf"), g_umap,
-  width = 6, height = 6
-)
+ggsave(file.path(proj_dir, "sc_rnaseq_umap.pdf"), g_umap, width = 6, height = 6)
 
 
+# Draw the cell-proportion boxplot
 draw_cellprop(pbmc, c("Undefined", "Platelet"), width = 7)

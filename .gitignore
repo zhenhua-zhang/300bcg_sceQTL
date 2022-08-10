@@ -5,6 +5,8 @@
 archived/
 tools/
 **/*.simg
+misc
+**/.DS_Store
 
 #
 ## R lang

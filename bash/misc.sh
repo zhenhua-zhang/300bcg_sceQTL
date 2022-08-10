@@ -5,12 +5,12 @@ source $proj_dir/scripts/.env/bin/activate
 
 mode=normal
 cell_type=B
-condition=T0_LPS.vs.T0_RPMI
+condition=
 
 for cell_type in Monocytes CD4T CD8T B NK; do
   for condition in T0_LPS.vs.T0_RPMI T3m_LPS.vs.T0_RPMI T3m_RPMI.vs.T0_RPMI T3m_LPS.vs.T3m_RPMI; do
     in_dir=$proj_dir/inputs/pseudo_bulk/$cell_type/$condition
-    out_dir=$proj_dir/outputs/pseudo_bulk/outcomes/$mode/${mode}_${cell_type}_${condition}/box_plots
+    out_dir=$proj_dir/outputs/pseudo_bulk/outcomes/$mode/${mode}_${cell_type}${condition}/box_plots
 
     case $condition in
       T0_LPS.vs.T0_RPMI | T3m_LPS.vs.T3m_RPMI)
@@ -26,11 +26,10 @@ for cell_type in Monocytes CD4T CD8T B NK; do
       -p $in_dir/phenotypes.tsv \
       -c $in_dir/covariates.tsv \
       -m $in_dir/sample_mapping.tsv \
-      --cond-col $group_by \
-      --cond-map $cond_map \
       --fig-size 3 7 \
       -o $out_dir
 
-    echo $out_dir
+      # --cond-col $group_by \
+      # --cond-map $cond_map \
   done
 done
