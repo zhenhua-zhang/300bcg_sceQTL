@@ -22,8 +22,6 @@ gemma \
   -gxe $gbepath \
   -o
 
-less mouse_hs1940.pheno.txt
-
 gemma -gk \
   -g mouse_hs1940.geno.txt.gz \
   -p mouse_hs1940.pheno.txt \

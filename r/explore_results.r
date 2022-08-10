@@ -1,4 +1,6 @@
 #!/usr/bin/env Rscript
+# Rscript to explore the sceQTL results.
+# Used libraries:
 options(stringsAsFactors = FALSE, future.globals.maxSize = 10000 * 1024^2)
 
 library(magrittr)
@@ -22,8 +24,11 @@ if (FALSE) {
 
 
 
-#' Load summary statistics table
-load_eqtl_tab <- function(dir, fdr = 0.05, fdr_col = "global_corrected_pValue", other_info = NULL) {
+#' Load eQTL summary statistics
+#'
+#'@description A utility function to load summary statistics from the disk
+load_eqtl_tab <- function(dir, fdr = 0.05, fdr_col = "global_corrected_pValue",
+                          other_info = NULL) {
   joinby <- c(
     "snp_id", "ensembl_gene_id", "feature_start", "feature_end",
     "feature_chromosome", "feature_id", "gene_name", "feature_strand",
@@ -31,7 +36,10 @@ load_eqtl_tab <- function(dir, fdr = 0.05, fdr_col = "global_corrected_pValue", 
     "assessed_allele"
   )
 
-  discard <- c("p_value", "beta", "beta_se", "empirical_feature_p_value", "alpha_param", "beta_param", "call_rate", "maf", "hwe_p")
+  discard <- c(
+    "p_value", "beta", "beta_se", "empirical_feature_p_value", "alpha_param",
+    "beta_param", "call_rate", "maf", "hwe_p"
+  )
 
   top_qtl_fpath <- file.path(dir, "top_qtl_results_all_FDR.txt")
   top_qtltab <- data.table::fread(top_qtl_fpath, data.table = FALSE) %>%
@@ -45,15 +53,11 @@ load_eqtl_tab <- function(dir, fdr = 0.05, fdr_col = "global_corrected_pValue", 
     dplyr::mutate(QTL = stringr::str_c(gene_name, snp_id, sep = "-"))
 
   if (!is.null(other_info) && !is.null(names(other_info))) {
-    for (nm in names(other_info)) {
-      cmb_qtltab[nm] <- other_info[nm]
-    }
+    for (nm in names(other_info)) { cmb_qtltab[nm] <- other_info[nm] }
   }
 
-  cmb_qtltab %>%
-    dplyr::filter(if_any(everything(), ~ !is.na(.x)))
+  cmb_qtltab %>% dplyr::filter(dplyr::if_any(dplyr::everything(), ~ !is.na(.x)))
 }
-
 
 
 #' Plot a dot plot to show the concordance between two cell types.
@@ -136,6 +140,8 @@ draw_upsetplot <- function(qtltabs, save_to = "./", groupby = "feature_id", widt
 
 
 #' Combine the QTL tables for a heatmap plot
+#'
+#'@description Function to plot Figure x
 make_cor_tab <- function(qtltabs, overwrite = TRUE, save_to = "./") {
   if (is.null(names(qtltabs))) stop("The qtltabs should be a named list")
 
@@ -242,6 +248,8 @@ goshifter_test <- function() {
 
 
 #' Plot heatmap for functional enrichment by GoShifter
+#'
+#' @description Function to plot Figure x
 plot_goshifter <- function(fpath) {
   enrich_out_list <- list.files(fpath, pattern = "*.enrich", recursive = TRUE, full.name = TRUE)
 
@@ -278,7 +286,8 @@ plot_goshifter <- function(fpath) {
 
 
 # Harmonize variants
-harmonize_vars <- function(eqtls, gwas, alt_af_db, eqtl_pval_col = "p_value", eqtl_pval = 0.1, clump = TRUE, clump_kb = 50, clump_r2 = 0.8, clump_bfile = NULL, chunk = 1000) {
+harmonize_vars <- function(eqtls, gwas, alt_af_db, eqtl_pval_col = "p_value", eqtl_pval = 0.1, clump = TRUE,
+                           clump_kb = 50, clump_r2 = 0.8, clump_bfile = NULL, chunk = 1000) {
   # Select and rename columns in the eQTL summary statistics.
   tar_col <- c(
     "SNP" = "snp_id", "beta" = "beta", "se" = "beta_se", "effect_allele" = "assessed_allele", "eaf" = "maf", "Phenotype" = "gene_name",
@@ -359,6 +368,8 @@ mr_test <- function(hm_dat, prune = FALSE, min_exp_pval = 5e-8, min_snps = 5) {
 
 
 #' Plot MR for single SNPs
+#'
+#' @description Function to plot Figure x
 plot_mrres <- function(mrpath, save_to = "./") {
   hm_tab <- data.table::fread(file.path(mrpath, "harmonized_data.csv"))
   mr_all_tab <- data.table::fread(file.path(mrpath, "mendelian_randomization_test.csv"))
@@ -499,6 +510,8 @@ fetch_genomic_features <- function(chrom, start, stop, gffpath, add_chr = TRUE, 
 
 
 #' Plot colocalization
+#'
+#' @description Function to plot Figure x
 plot_coloc <- function(load_path, min_h4 = 0.5, min_h3 = 0.25, override = FALSE, expand = 0, shift = 0, save_to = "./", ...) {
   # load_path <- "../outputs/pseudo_bulk/outcomes/normal/normal_B"
   cc_path <- file.path(load_path, "colocalization_test.csv")
@@ -552,7 +565,8 @@ plot_coloc <- function(load_path, min_h4 = 0.5, min_h3 = 0.25, override = FALSE,
             gftab <- dplyr::mutate(gftab, gene_pos = y_coord_dict[gene] * 1.5)
 
             gf_plot <- ggplot() +
-              geom_rect(aes(xmin = start, xmax = end, ymin = gene_pos - height, ymax = gene_pos + height, fill = strand), data = gftab, position = "identity", stat = "identity") +
+              geom_rect(aes(xmin = start, xmax = end, ymin = gene_pos - height, ymax = gene_pos + height, fill = strand),
+                        data = gftab, position = "identity", stat = "identity") +
               geom_text(aes(start, gene_pos, label = gene, color = highlight), data = dplyr::filter(gftab, type == "gene"), hjust = 1.1, size = 2) +
               scale_fill_manual(name = NULL, values = c("-" = "darkblue", "+" = "darkred")) +
               scale_color_manual(name = NULL, values = c("TRUE" = "red", "FALSE" = "black")) +
@@ -658,8 +672,8 @@ afdb <- data.table::fread(afdb_path) %>% tibble::deframe()
 
 
 # GARFIELD database
-gfout_dir <- file.path(proj_dir, "outputs/pseudo_bulk/outcomes/garfield")
-gfdb_dir <- file.path(proj_dir, "outputs/garfield-data-grch38")
+# gfout_dir <- file.path(proj_dir, "outputs/pseudo_bulk/outcomes/garfield")
+# gfdb_dir <- file.path(proj_dir, "outputs/garfield-data-grch38")
 
 
 # List to store results.
@@ -672,7 +686,7 @@ peres_list <- list()
 
 mode <- "normal"
 for (mode in mode_vec) {
-  for (cell_type in cell_type_vec[1]) {
+  for (cell_type in cell_type_vec) {
     if (mode == "normal") {
       root_dir <- file.path(in_dir, mode, cell_type)
       run_id <- paste(mode, cell_type, sep = "_")
@@ -700,15 +714,15 @@ for (mode in mode_vec) {
 
   save_to <- file.path(proj_dir, "outputs/pseudo_bulk/outcomes", mode)
 
-  cat("[I]: Estimating correlations for", mode, "eQTLs ...\n")
-  qtlcor_tab <- make_cor_tab(qtltab_list, save_to = save_to) %>%
-    dplyr::mutate(x = stringr::str_remove(x, paste0(mode, "_")), y = stringr::str_remove(y, paste0(mode, "_")))
-
-  cat("[I]: Drawing heatmap for the correlation of", mode, "eQTLs ...\n")
-  draw_heatmap(qtlcor_tab, save_to, 3.25, 4.5)
+  # FIXME: Using MASH to estimate the shared signals
+  # cat("[I]: Estimating correlations for", mode, "eQTLs ...\n")
+  # qtlcor_tab <- make_cor_tab(qtltab_list, save_to = save_to) %>%
+  #   dplyr::mutate(x = stringr::str_remove(x, paste0(mode, "_")), y = stringr::str_remove(y, paste0(mode, "_")))
+  # cat("[I]: Drawing heatmap for the correlation of", mode, "eQTLs ...\n")
+  # draw_heatmap(qtlcor_tab, save_to, 3.25, 4.5)
 
   cat("[I]: Drawing upset plot", mode, "eQTLs ...\n")
-  draw_upsetplot(qtltab_list, save_to, "feature_id", 9, 5)
+  draw_upsetplot(qtltab_list, save_to, "feature_id", 7, 5)
 
   # Concordance between two runs.
   .tmp <- combn(names(qtltab_list), 2) %>%
