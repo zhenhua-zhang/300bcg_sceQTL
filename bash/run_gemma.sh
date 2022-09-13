@@ -3,13 +3,21 @@
 proj_dir=~/Documents/projects/wp_bcg_eqtl
 pct=Monocytes
 
-## Prepare genotypes
+source $proj_dir/scripts/.env/bin/activate
 
-python3 prepare_gemma_input.py \
-  -g $vcfpath \
-  -p $exppath \
-  -w $winsize \
-  -o $
+# Prepare inputs gene expression matrix
+python3 $proj_dir/scripts/py3/prepare_gemma_input.py \
+  -g abc \
+  -p abc \
+  -f /vol/projects/zzhang/projects/wp_bcg_eqtl/inputs/reference/Gencode/gencode.v41.basic.annotation.gff3.gz \
+  -c abc \
+  -o $proj_dir/temps/mean_genotype.geno
+
+#
+vcfpath=$proj_dir/inputs/genotypes/300BCG_sub40_imp_hg38_ids_clean.vcf.gz
+plink --vcf $vcfpath --recode bimbam --out $proj_dir/outputs/genotypes/BIMBAM/300BCG_sub40_imp_hg38_clean
+
+## Prepare genotypes
 
 
 # Run GEMMA of linear mixed model
@@ -18,9 +26,10 @@ gemma \
   -p $exppath \
   -a $annpath \
   -k $kinpath \
-  -lmm \
   -gxe $gbepath \
-  -o
+  -lmm \
+  -notsnp \
+  -o $outdir
 
 gemma -gk \
   -g mouse_hs1940.geno.txt.gz \

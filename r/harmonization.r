@@ -132,7 +132,7 @@ cell_type_vec <- c("Monocytes", "CD4T", "CD8T", "NK", "B") # , "pDC", "mDC")
 condition_vec <- c("T0_LPS.vs.T0_RPMI", "T3m_LPS.vs.T0_RPMI", "T3m_LPS.vs.T3m_RPMI", "T3m_RPMI.vs.T0_RPMI")
 
 # Reference genotypes panel for local clumping
-eur_1kg_geno <- file.path(proj_dir, "inputs/reference/genotypes/EUR")
+eur_1kg_geno <- file.path(proj_dir, "inputs/reference/genotypes/GRCh38/EUR")
 
 # Allele frequecies of effect allele used in sceQTL mapping.
 afdb_path <- file.path(proj_dir, "inputs/genotypes/300BCG_sub40_imp_hg38_ref_allele_frequency.csv")
