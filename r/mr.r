@@ -9,21 +9,23 @@ NULL
 # of the InSIDE assumption and the influence of outlying variants.
 
 # Options, packages used in the analysis
+options(stringsAsFactors = FALSE, future.globals.maxSize = 10000 * 1024^2)
 library(magrittr)
 library(tidyverse)
 library(data.table)
 library(TwoSampleMR)
-options(stringsAsFactors = FALSE, future.globals.maxSize = 10000 * 1024^2)
 
 
 #' Mendelian randomization analysis
-mr_test <- function(hm_dat, min_exp_pval = 5e-8, min_snps = 5, prune = FALSE) {
+mr_test <- function(hm_dat, min_exp_pval = 5e-8, min_snps = 5, prune = FALSE, use_clumped = TRUE) {
   # Do prune
   if (prune) hm_dat <- TwoSampleMR::power_prune(hm_dat)
 
   # Filter out SNPs not suitable for MR test and keep significant exposure SNPs
-  if ("clump_keep" %in% colnames(hm_dat)) hm_dat <- dplyr::filter(hm_dat, mr_keep, clump_keep, pval.exposure < min_exp_pval)
-  else hm_dat <- dplyr::filter(hm_dat, mr_keep, pval.exposure < min_exp_pval)
+  if ("clump_keep" %in% colnames(hm_dat) && use_clumped)
+    hm_dat <- dplyr::filter(hm_dat, mr_keep, clump_keep, pval.exposure < min_exp_pval)
+  else
+    hm_dat <- dplyr::filter(hm_dat, mr_keep, pval.exposure < min_exp_pval)
 
   # A list to store results
   mr_res <- list(hm_dat = NULL, mr = NULL, mr_single_snp = NULL, mr_pleio = NULL, mr_hetero = NULL)
@@ -44,15 +46,24 @@ mr_test <- function(hm_dat, min_exp_pval = 5e-8, min_snps = 5, prune = FALSE) {
 #'
 #' @description Function to plot Figure x
 plot_mrres <- function(mrpath, save_to = "./", override = TRUE) {
-  hm_tab <- data.table::fread(file.path(mrpath, "harmonized_data.csv"))
-  mr_all_tab <- data.table::fread(file.path(mrpath, "mendelian_randomization_test.csv"))
+  hm_tab_path <- file.path(mrpath, "harmonized_data.csv")
+  mr_all_tab_path <- file.path(mrpath, "mendelian_randomization_test.csv")
+  mr_persnp_tab_path <- file.path(mrpath, "mendelian_randomization_test_persnp.csv")
 
-  mr_persnp_tab <- data.table::fread(file.path(mrpath, "mendelian_randomization_test_persnp.csv"))
+  all_exists <- all(file.exists(c(hm_tab_path, mr_all_tab_path, mr_persnp_tab_path)))
+  if (!all_exists) return(NULL)
+
+  hm_tab <- data.table::fread(hm_tab_path)
+  mr_all_tab <- data.table::fread(mr_all_tab_path)
+  mr_persnp_tab <- data.table::fread(mr_persnp_tab_path)
+
   mr_persnp_tab %>%
-    dplyr::group_by(exposure, outcome) %>%
+    dplyr::group_by(exposure, id.exposure, outcome, id.outcome) %>%
     dplyr::summarise(mr_figs = {
       per_exposure <- dplyr::cur_group()$exposure
       per_outcome <- dplyr::cur_group()$outcome
+      per_outcome_id <- dplyr::cur_group()$id.outcome
+      per_exposure_id <- dplyr::cur_group()$id.exposure
 
       per_mr_persnp <- dplyr::cur_data_all() %>% dplyr::filter(!duplicated(SNP)) %>% as.data.frame()
 
@@ -63,7 +74,7 @@ plot_mrres <- function(mrpath, save_to = "./", override = TRUE) {
 
       to_plot <- !is.na(all_mr_sig) && all_mr_sig >= 1 && !is.na(any_snp_sig) && any_snp_sig > 0
       if (to_plot) {
-        per_outcome_xx <- stringr::str_remove_all(per_outcome, "[|]+ id:") %>% stringr::str_replace_all("[ ]+", "_")
+        per_outcome_xx <- paste(per_outcome, per_outcome_id, sep = "_")
 
         # Forest plot
         fig_path <- file.path(save_to, paste("mr_forest", per_exposure, per_outcome_xx, "pdf", sep = "."))
@@ -75,8 +86,8 @@ plot_mrres <- function(mrpath, save_to = "./", override = TRUE) {
         # MR plot
         fig_path <- file.path(save_to, paste("mr_scatter", per_exposure, per_outcome_xx, "pdf", sep = "."))
         if (!file.exists(fig_path) || override) {
-          per_mr_all <- mr_all_tab %>% dplyr::filter(exposure == per_exposure, outcome == per_outcome) %>% as.data.frame()
-          per_hm_tab <- hm_tab %>% dplyr::filter(exposure == per_exposure, outcome == per_outcome, SNP %in% per_mr_persnp$SNP) %>% as.data.frame()
+          per_mr_all <- dplyr::filter(mr_all_tab, id.exposure == per_exposure_id, id.outcome == per_outcome_id) %>% as.data.frame()
+          per_hm_tab <- dplyr::filter(hm_tab, id.exposure == per_exposure_id, id.outcome == per_outcome_id, SNP %in% per_mr_persnp$SNP) %>% as.data.frame()
 
           p <- TwoSampleMR::mr_scatter_plot(per_mr_all, per_hm_tab)
           ggsave(fig_path, plot = p[[1]], width = 7, height = 7)
@@ -93,7 +104,7 @@ plot_mrres <- function(mrpath, save_to = "./", override = TRUE) {
 #
 ## Main steps.
 #
-proj_dir <- "/home/zzhang/Documents/projects/wp_bcg_eqtl"
+proj_dir <- "~/Documents/projects/wp_bcg_eqtl"
 in_dir <- file.path(proj_dir, "outputs/pseudo_bulk")
 
 # Two model used in the analysis.
@@ -103,11 +114,14 @@ mode_vec <- c("normal", "interaction")
 cell_type_vec <- c("Monocytes", "CD4T", "CD8T", "NK", "B") # , "pDC", "mDC")
 
 # All comparisons used in the analysis.
-condition_vec <- c("T0_LPS.vs.T0_RPMI", "T3m_LPS.vs.T0_RPMI", "T3m_LPS.vs.T3m_RPMI", "T3m_RPMI.vs.T0_RPMI")
+condition_vec <- c("T0_LPS.vs.T0_RPMI", "T3m_LPS.vs.T3m_RPMI", "T3m_RPMI.vs.T0_RPMI")#, "T3m_LPS.vs.T0_RPMI")
 
+# Override existing files
+override <- TRUE
 
 # Per loop per eQTL-mapping-run
 for (mode in mode_vec) {
+  mode <- "interaction"
   for (cell_type in cell_type_vec) {
     base_dir <- file.path(proj_dir, "outputs/pseudo_bulk/outcomes", mode)
 
@@ -119,7 +133,7 @@ for (mode in mode_vec) {
 
       mr_save_to <- file.path(wk_dir, "mendelian_randomization_test.csv")
       mr_ps_save_to <- file.path(wk_dir, "mendelian_randomization_test_persnp.csv")
-      if (!file.exists(mr_save_to) || !file.exists(mr_ps_save_to)) {
+      if (!file.exists(mr_save_to) || !file.exists(mr_ps_save_to) || override) {
         cat("[I]: Estimating causality by TwoSampleMR ...\n")
         mr_results <- mr_test(hm_dat, min_exp_pval = 5e-6)
         data.table::fwrite(mr_results$mr, mr_save_to, verbose = FALSE, showProgress = FALSE)
@@ -132,18 +146,20 @@ for (mode in mode_vec) {
       .tmp <- plot_mrres(wk_dir, save_to = mrp_saveto)
     } else {
       for (condition in condition_vec) {
-        wk_dir <- file.path(base_dir, paste(mode, cell_type, sep = "_"), condition)
+        wk_dir <- file.path(base_dir, paste(mode, cell_type, condition, sep = "_"))
 
         hm_dat_path <- file.path(wk_dir, "harmonized_data.csv")
         hm_dat <- data.table::fread(hm_dat_path)
 
         mr_save_to <- file.path(wk_dir, "mendelian_randomization_test.csv")
         mr_ps_save_to <- file.path(wk_dir, "mendelian_randomization_test_persnp.csv")
-        if (!file.exists(mr_save_to) || !file.exists(mr_ps_save_to)) {
+        if (!file.exists(mr_save_to) || !file.exists(mr_ps_save_to) || override) {
           cat("[I]: Estimating causality by TwoSampleMR ...\n")
           mr_results <- mr_test(hm_dat, min_exp_pval = 5e-6)
-          data.table::fwrite(mr_results$mr, mr_save_to, verbose = FALSE, showProgress = FALSE)
-          data.table::fwrite(mr_results$mr_single_snp, mr_ps_save_to, verbose = FALSE, showProgress = FALSE)
+          if (!is.null(mr_results$mr) && !is.null(mr_results$mr_single_snp)) {
+            data.table::fwrite(mr_results$mr, mr_save_to, verbose = FALSE, showProgress = FALSE)
+            data.table::fwrite(mr_results$mr_single_snp, mr_ps_save_to, verbose = FALSE, showProgress = FALSE)
+          }
         }
 
         mrp_saveto <- file.path(wk_dir, "mr_plots")

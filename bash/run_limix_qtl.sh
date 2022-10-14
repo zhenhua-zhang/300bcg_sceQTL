@@ -22,7 +22,7 @@ check_term() {
 DEBUG=false
 
 if [[ $DEBUG == true ]]; then
-  njobs=10
+  njobs=2
 else
   njobs=200
 fi
@@ -88,13 +88,14 @@ conda deactivate
 conda activate limix_qtl
 
 
-# Run the pipeline by Snakemake
-mode=pseudo_bulk
 tmstmp=$(date +%Y%m%d%H%M%S)
 smfile=$proj_dir/scripts/snakemake/300bcg_limix_qtl.smk
 
+#
+## Run the pipeline by Snakemake, pseudo-bulk
+#
 # Submit jobs to do the regression analysis.
-# for model in normal interaction; do
+mode=pseudo_bulk
 for model in normal; do
   for ctype in Monocytes CD4T CD8T NK B; do
     out_dir=$proj_dir/outputs/$mode/$model/$ctype
@@ -103,15 +104,12 @@ for model in normal; do
     if [[ ! -d $out_dir/logs ]]; then mkdir -p $out_dir/logs; fi
 
     # Unlock the control folder of Snakemake.
-    snakemake --unlock -s $smfile \
-      -C runMode=. cellType=. compPair=. evalModel=. interTerm=.
+    snakemake --unlock -s $smfile -C runMode=. cellType=. compPair=. evalModel=. interTerm=.
 
     if [[ $model == normal ]]; then
       # Include all samples to estimate shared genetic effects
       dr_log=$out_dir/logs/${tmstmp}_${model}_smdry.log
-      snakemake -r -n -c 1 -s $smfile \
-        -C runMode=$mode cellType=$ctype compPair=. evalModel=$model usePEER=true \
-        1>&2 >| $dr_log
+      snakemake -r -n -c 1 -s $smfile -C runMode=$mode cellType=$ctype compPair=. evalModel=$model usePEER=true 1>&2 >| $dr_log
 
       # Run
       errf=$out_dir/logs/%j-${tmstmp}_${model}_sbatch.err
@@ -136,10 +134,37 @@ for model in normal; do
         snakemake -k -j $njobs -w 60 -s $smfile \
           -C runMode=$mode cellType=$ctype compPair=$cmppair evalModel=$model interTerm=$icterm usePEER=true \
           --cluster 'sbatch -t 1:59:0 -p cpu -o '$outf' -e '$errf' -J '$model-$ctype-$cmppair' -N 1 --cpus-per-task 1 --ntasks 1 --mem 4G'
-        # break
       done
     fi
-    # break
   done
-  # break
+done
+
+
+#
+## Run the pipeline by Snakemake, pseudo-time
+#
+mode=pseudo_time
+# for per_win in win_{1..3}; do
+for per_win in win_4; do
+  for ctype in CD4T; do
+    out_dir=$proj_dir/outputs/$mode/$ctype
+
+    # Save the log files.
+    if [[ ! -d $out_dir/logs ]]; then mkdir -p $out_dir/logs; fi
+
+    # Unlock the control folder of Snakemake.
+    snakemake --unlock -s $smfile -C runMode=. cellType=. compPair=. evalModel=. interTerm=.
+
+    # Include all samples to estimate shared genetic effects
+    dr_log=$out_dir/logs/${tmstmp}_${mode}_smdry.log
+    snakemake -r -n -c 1 -s $smfile \
+      -C runMode=$mode cellType=$ctype compPair=$per_win evalModel=. usePEER=true 1>&2 >| $dr_log
+
+    # Run
+    errf=$out_dir/logs/%j-${tmstmp}_sbatch.err
+    outf=$out_dir/logs/%j-${tmstmp}_sbatch.out
+    snakemake -k -j $njobs -w 60 -s $smfile \
+      -C runMode=$mode cellType=$ctype compPair=$per_win evalModel=. usePEER=true \
+      --cluster 'sbatch -t 1:59:0 -p cpu -o '$outf' -e '$errf' -J '$mode-$ctype' -N 1 --cpus-per-task 1 --ntasks 1 --mem 4G'
+  done
 done

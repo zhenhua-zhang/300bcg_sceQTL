@@ -1,43 +1,51 @@
 #!/usr/bin/env python3
 # Because phenotype is required, so the order of the samples in the rest files is the same as phenotype's
 
+# TODO: 1-based or 0-based
+
+import os
 from argparse import ArgumentParser
-from collections import OrderedDict
 
 import pysam as ps
 import pandas as pd
 
-GFF_HEADER = ["Chrom", "Source", "Type", "Start", "End", "Score", "Strand", "Phase", "Attributes"]
 
-def filter_record(rec):
-    return all([
-        "transcript_support_level=1" in rec.Attributes,
-        "Ensembl_canonical" in rec.Attributes,
-        "not_best_in_genome_evidence" not in rec.Attributes,
-    ])
+class GFFTree:
+    def __init__(self, in_path):
+        self._in_path = in_path
+        self._gff_records = []
+
+    def fetch(self, chrom=None, begin=None, end=None, bin_size=1024):
+        gff_file = ps.TabixFile(self._in_path, parser=ps.asGFF3())
+        subgfr = gff_file.fetch(chrom, begin, end)
+
+        record_tmp = []
+        for idx, per_rec in enumerate(subgfr):
+            attr_dict = dict([x.split("=") for x in per_rec.attributes.split(";")])
+            record_tmp.append((per_rec.contig, per_rec.start, per_rec.end, attr_dict["gene_name"]))
+
+            if (idx + 1) % bin_size == 0:
+                self._gff_records.append(record_tmp)
+                record_tmp = []
+        if record_tmp: self._gff_records.append(record_tmp)
+        gff_file.close()
+
+    @property
+    def records(self):
+        return self._gff_records
 
 
-def select_attr(rec, kept_attr=["gene_name", "gene_type", "gene_id", "tag"]):
-    attr_dict = dict([x.split("=") for x in rec.Attributes.split(";")])
-    for pka in kept_attr:
-        rec[pka] = attr_dict.get(pka, None)
+class Variant:
+    def __init__(self, in_path):
+        self._in_path = in_path
+        self._var_records = []
+        self._var_annos = []
 
-    return rec.loc[["Chrom", "Start", "End"] + kept_attr]
+    def fetch(self, chrom, begin, end, samples=None):
+        var_file = ps.VariantFile(self._in_path)
 
-
-def parse_genomic_features(path, out_pref=None):
-    global GFF_HEADER
-    gftab = pd.read_csv(path, sep="\t", comment="#", header=None, names=GFF_HEADER).query("Type == 'transcript'")
-    gftab = gftab.loc[gftab.apply(filter_record, axis=1)].apply(select_attr, axis=1)
-
-    return gftab
-
-
-def prep_genotype(path, p2gmap=None, out_pref = "./genotype"):
-    variter = ps.VariantFile(path).fetch()
-    with open(out_pref.strip("/") + ".csv", mode="w") as outfh:
-        for prec in variter:
-            snp_id = prec.id
+        subvars = var_file.fetch(chrom, begin, end)
+        for idx, prec in enumerate(subvars):
 
             # Dealing with minor and major alleles
             ref_allele = prec.ref
@@ -49,35 +57,128 @@ def prep_genotype(path, p2gmap=None, out_pref = "./genotype"):
             else:
                 major, minor = ref_allele, alt_allele
 
-            if p2gmap:
-                smpds = [prec.samples.get(ps, {"DS": None}).get("DS") for ps in p2gmap.values()]
+            if samples:
+                smpds = [prec.samples.get(ps, {"DS": None}).get("DS") for ps in samples]
             else:
                 smpds = [pfmt.get("DS", None) for _, pfmt in prec.samples.items()]
 
-            # mean genotype format (for more, check GEMMA manual at Mean Genotype File).
-            mgrec = ",".join([str(x) for x in [snp_id, minor, major] + smpds]).strip("\n") + "\n"
+            if idx == 0:
+                if samples:
+                    colname = ["Chrom", "Minor", "Major"] + samples
+                else:
+                    colname = ["Chrom", "Minor", "Major"] + [str(x) for x in prec.samples.keys()]
 
-            outfh.write(mgrec)
+                self._var_records.append(colname)
+
+            per_record = [prec.id, minor, major] + smpds
+            self._var_records.append(per_record)
+            self._var_annos.append([prec.id, prec.pos, prec.chrom])
+
+        var_file.close()
+
+    def write_to(self, out_path):
+        var_path = f"{out_path}_genotype.txt"
+        with open(var_path, "w") as outhand:
+            for per_rec in self._var_records:
+                line = "\t".join([str(x) for x in per_rec]).strip("\n") + "\n"
+                outhand.write(line)
+
+        ann_path = f"{out_path}_genotype_annotation.txt"
+        with open(ann_path, "w") as outhand:
+            for per_rec in self._var_annos:
+                line = ",".join([str(x) for x in per_rec]).strip("\n") + "\n"
+                outhand.write(line)
+
+    @property
+    def records(self):
+        return self._var_records
 
 
-def prep_phenotype(path, out_pref="./phenotype"):
-    pheno_tab = pd.read_csv(path)
+def fread(fpath, n_test=20, **kwargs):
+    delims = {"\t": [], ",": [], ";": [], "|": [], " ": []}
+    with open(fpath) as inhand:
+        for idx, line in enumerate(inhand):
+            if idx == n_test: break
+            delims["\t"].append(line.count("\t"))
+            delims[","].append(line.count(","))
+            delims[";"].append(line.count(";"))
+            delims["|"].append(line.count("|"))
+            delims[" "].append(line.count(" "))
 
+        obs = [(d, max(c)) for d, c in delims.items() if min(c) == max(c) and max(c) != 0]
 
-def prep_covariate(path, p2gmap=None):
-    cov_tab = pd.read_csv(path)
+    if len(obs) != 1: raise ValueError("Ambugious field delimiter, you have to specify it manully.")
+    if "sep" not in kwargs: kwargs["sep"] = obs[0][0]
+
+    return pd.read_csv(fpath, **kwargs)
 
 
 def main(opts):
-    # p2gmap = prep_phenotype(opts.phenotype, opts.out_pref)
-    parse_genomic_features(opts.genomic_feature)
+    out_dir = opts.out_dir
+    if not os.path.exists(out_dir): os.makedirs(out_dir, exist_ok=True)
 
-    if opts.p2g_map is not None:
-        p2gmap = pd.read_csv(opts.p2g_map, sep = "\t")
-        p2gmap = OrderedDict(zip(p2gmap.sample_id, p2gmap.genotype_id))
+    # Expression matrix. Gene per row, sample per column.
+    # The first column should be the gene name or any unique identifier indicating the gene.
+    expr_tab = fread(opts.phenotype, index_col="feature_id")
+    avail_genes = expr_tab.index.to_list()
+    avail_samples = expr_tab.columns.to_list()
 
-    if opts.genotype is not None:
-        prep_genotype(opts.genotype, p2gmap, opts.out_pref)
+    sample_orders = f"{out_dir}/sample_orders.txt"
+    with open(sample_orders, "w") as outhand:
+        outhand.write("\n".join(avail_samples) + "\n")
+
+    # Covariates. Sample/individual per row, trait per column.
+    # The first column should be the sample id or any unique identifier indicating the sample/individual.
+    if opts.covariate:
+        covar_tab = fread(opts.covariate, index_col="sample_id")
+        covar_save_to = f"{out_dir}/covariate.txt"
+        (covar_tab
+         .assign(intercept=1)
+         .loc[avail_samples, ["intercept"] + covar_tab.columns.to_list()]
+         .to_csv(covar_save_to, sep="\t", index=False, header=False))
+
+        covar_order = f"{out_dir}/covariate_orders.txt"
+        with open(covar_order, "w") as outhand:
+            outhand.write("\n".join(["intercept"] + covar_tab.columns.to_list()) + "\n")
+
+        if opts.ia_var:
+            itvar_save_to = f"{out_dir}/interaction_covariates-{opts.ia_var}.txt"
+            covar_tab.loc[avail_samples, opts.ia_var].to_csv(itvar_save_to, index=False, header=False)
+
+    # Phenotype to genotype map.
+    # Two columns, first is the genotype id in the VCF file, the second is the sample/individual id in phenotype and covariate files.
+    if opts.p2g_map:
+        p2g_tab = fread(opts.p2g_map, header=None, index_col=1)
+        p2g_map = p2g_tab.to_dict()[0]
+        tar_geno_ids = [p2g_map[pid] for pid in avail_samples]
+    else:
+        p2g_map = None
+        tar_geno_ids = None
+
+    # Genomic feature tree including gene coordiantions.
+    # The features were assigned bins to ensure equal size of chuncks regarding number of genes.
+    all_gfr = GFFTree(opts.genomic_feature)
+    all_gfr.fetch()
+
+    for idx, per_block in enumerate(all_gfr.records):
+        dir_name = f"{out_dir}/block_{idx:>05}"
+        if not os.path.exists(dir_name): os.makedirs(dir_name, exist_ok=True)
+
+        for chrom, start, stop, gene_name in per_block:
+            if gene_name not in avail_genes: continue
+
+            chrom = f"chr{chrom}"
+            start = max(start - opts.flank_size, 0)
+            stop = stop + opts.flank_size
+
+            all_vars = Variant(opts.genotype)
+            all_vars.fetch(chrom, start, stop, tar_geno_ids)
+
+            genotype_save_to = f"{dir_name}/{gene_name}"
+            all_vars.write_to(genotype_save_to)
+
+            phenotype_save_to = f"{dir_name}/{gene_name}_phenotype.txt"
+            expr_tab.loc[gene_name, avail_samples].to_csv(phenotype_save_to, sep="\t", index=False, header=False)
 
 
 if __name__ == "__main__":
@@ -93,11 +194,14 @@ if __name__ == "__main__":
                      help="Covariate in tab-delimited format, with columns as covariate names and orws as samples. "
                           "A columns named sample_id is required. Default: %(default)s")
     par.add_argument("-m", "--p2g-map", default=None, metavar="FILE",
-                     help="Phenotype to genotype map. If it is missing the script supposes the names are matched across all files. Default: %(default)s")
+                     help="Phenotype to genotype map. If it is missing the script supposes the names are matched across all files."
+                          " Default: %(default)s")
+    par.add_argument("-I", "--ia-var", default=None, metavar="STR",
+                     help="The covariate used for the interaction. Default: %(default)s")
     par.add_argument("-F", "--flank-size", default=2.5e5, metavar="INT",
                      help="The window-size used to fetch SNPs for each feature. Default: %(default)s")
-    par.add_argument("-o", "--out-pref", default="./gemma_input", metavar="STR",
-                     help="The output prefix, path can be included. Default: %(default)s")
+    par.add_argument("-o", "--out-dir", default="./gemma_inputs", metavar="STR",
+                     help="The output dir. Default: %(default)s")
 
     opts = par.parse_args()
 

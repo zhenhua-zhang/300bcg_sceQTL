@@ -49,7 +49,7 @@ def get_opts():
                      " where multiple ones should be splitted by space.")
     par.add_argument("--drop-outlier", action="store_true",
                      help="Whether drop outliers.")
-    par.add_argument("--fig-size", nargs=2, default=[7, 7], type=int,
+    par.add_argument("--fig-size", nargs=2, default=[7, 7], type=float,
                      help="The figure size in format w h. Default: %(default)s")
     par.add_argument("-o", "--out-dir", default="./",
                      help="Output folder. Default: %(default)s")
@@ -90,6 +90,7 @@ def draw_snpeff(
     save_to="scatterplot.png", fig_size=(7, 7)
 ):
     hue_order = mat[gntp_col].drop_duplicates().sort_values().to_list()
+    mat.sort_values(gntp_col, inplace=True)
 
     do_dodge = True
     if cond_col is None:
