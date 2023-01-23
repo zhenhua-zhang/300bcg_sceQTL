@@ -3,12 +3,14 @@
 #' Colocalization analysis by R/coloc
 NULL
 
-options(stringsAsFactors = FALSE, future.globals.maxSize = 10000 * 1024^2)
-library(ggrepel)
-library(magrittr)
-library(tidyverse)
-library(patchwork)
-library(org.Hs.eg.db)
+options(stringsAsFactors = FALSE, data.table.verbose = FALSE, future.globals.maxSize = 10000 * 1024^2)
+suppressPackageStartupMessages({
+  library(ggrepel)
+  library(magrittr)
+  library(tidyverse)
+  library(patchwork)
+  library(org.Hs.eg.db)
+})
 
 
 #' Fetch data for coloc analysis from the harmonized dataset
@@ -22,35 +24,37 @@ fetch_coloc_data <- function(hm_dat, what = "exposure", warn_minp = 5e-5) {
 
   tab <- hm_dat %>%
     dplyr::select(dplyr::all_of(cols)) %>%
-    dplyr::filter(dplyr::across(dplyr::everything(), ~ !is.na(.))) %>%
-    dplyr::mutate(type = "quant", varbeta = varbeta^2) %>%
+    dplyr::filter(dplyr::if_all(dplyr::everything(), ~ !is.na(.x))) %>%
+    dplyr::mutate(type = "quant", varbeta = varbeta ^ 2) %>%
     (function(dat) {
-      beta <- dplyr::select(dat, "snp", "beta") %>% tibble::deframe()
-      varbeta <- dplyr::select(dat, "snp", "varbeta") %>% tibble::deframe()
-      maf <- dplyr::select(dat, "snp", "MAF") %>% tibble::deframe()
+      res <- NULL
+      if (nrow(dat)) {
+        beta <- dplyr::select(dat, "snp", "beta") %>% tibble::deframe()
+        varbeta <- dplyr::select(dat, "snp", "varbeta") %>% tibble::deframe()
+        maf <- dplyr::select(dat, "snp", "MAF") %>% tibble::deframe()
 
-      list(
-        beta = beta, varbeta = varbeta, snp = dat$snp, position = dat$position,
-        type = dat$type[1], N = max(dat$N), MAF = maf
-      )
+        res <- list(beta = beta, varbeta = varbeta, snp = dat$snp, position = dat$position,
+                    type = dat$type[1], N = max(dat$N), MAF = maf)
+      }
+      res
     })
-  coloc::check_dataset(tab, warn.minp = warn_minp)
+
+  if (!is.null(tab)) coloc::check_dataset(tab, warn.minp = warn_minp)
   return(tab)
 }
 
 
 #' Colocalization anlaysis
-colocalization_test <- function(hm_dat, min_snps = 10) {
-  if (nrow(hm_dat) < min_snps) {
-    return(NA)
-  }
+colocalization_test <- function(hm_dat, min_snps = 10, ...) {
+  if (nrow(hm_dat) < min_snps) return(NA)
 
   qry <- fetch_coloc_data(hm_dat, "exposure")
   ref <- fetch_coloc_data(hm_dat, "outcome")
 
-  if (TRUE) {
+  ccsum <- c()
+  if (TRUE && !is.null(qry) && !is.null(ref)) {
     sink("/dev/null")
-    ccsum <- coloc::coloc.abf(qry, ref)$summary
+    ccsum <- coloc::coloc.abf(qry, ref, ...)$summary
     sink()
   }
 
@@ -208,17 +212,20 @@ eur_1kg_geno <- file.path(proj_dir, "inputs/reference/genotypes/GRCh38/EUR")
 gff_file <- file.path(proj_dir, "inputs/reference/Gencode/gencode.v41.basic.annotation.Ec.transcript.autosome.gff.gz")
 
 override <- TRUE
+in_file <- "run_2_harmonized_data.csv"
+out_file <- "run_2_colocalization_test.csv"
 for (mode in mode_vec) {
+  in_base_dir <- file.path(proj_dir, "outputs/pseudo_bulk/harmonization", mode)
+  out_base_dir <- file.path(proj_dir, "outputs/pseudo_bulk/coloc", mode)
+
   for (cell_type in cell_type_vec) {
-    base_dir <- file.path(proj_dir, "outputs/pseudo_bulk/outcomes", mode)
-
     if (mode == "normal") {
-      wk_dir <- file.path(base_dir, paste(mode, cell_type, sep = "_"))
-
-      hm_dat_path <- file.path(wk_dir, "harmonized_data.csv")
+      hm_dat_path <- file.path(in_base_dir, cell_type, in_file)
       hm_dat <- data.table::fread(hm_dat_path)
 
-      cc_save_to <- file.path(wk_dir, "colocalization_test.csv")
+      cc_save_to <- file.path(out_base_dir, cell_type)
+      if (!dir.exists(cc_save_to)) dir.create(cc_save_to, recursive = TRUE)
+
       if (!file.exists(cc_save_to) || override) {
         cat("[I]: Estimating co-localization by coloc for", cell_type, "...\n")
         ccres <- dplyr::group_by(hm_dat, exposure, outcome, id.outcome) %>%
@@ -227,35 +234,25 @@ for (mode in mode_vec) {
           dplyr::rename_with(dplyr::starts_with("cc_res."), .fn = ~ stringr::str_remove(.x, "cc_res.")) %>%
           dplyr::filter(dplyr::if_all(dplyr::starts_with("H"), .fns = ~ !is.na(.x)))
 
-        data.table::fwrite(ccres, cc_save_to, verbose = FALSE, showProgress = FALSE)
+        data.table::fwrite(ccres, file.path(cc_save_to, out_file))
       }
-
-      ccp_saveto <- file.path(wk_dir, "cc_plots")
-      if (!dir.exists(ccp_saveto)) dir.create(ccp_saveto, recursive = TRUE)
-      plot_coloc(wk_dir, min_h4 = 0.5, save_to = ccp_saveto, plink_bin = "plink-quiet", bfile = eur_1kg_geno, gffpath = gff_file, override = TRUE)
     } else {
       for (condition in condition_vec) {
-        wk_dir <- file.path(base_dir, paste(mode, cell_type, condition, sep = "_"))
-
-        hm_dat_path <- file.path(wk_dir, "harmonized_data.csv")
+        hm_dat_path <- file.path(in_base_dir, cell_type, condition, in_file)
         hm_dat <- data.table::fread(hm_dat_path)
 
-        cc_save_to <- file.path(wk_dir, "colocalization_test.csv")
-        if (!file.exists(cc_save_to) || override) {
-          cat("[I]: Estimating co-localization by coloc ...\n")
-          ccres <- dplyr::group_by(hm_dat, exposure, outcome, id.outcome) %>%
-            dplyr::filter(dplyr::if_all(.fns = ~ !is.na(.x))) %>%
-            dplyr::summarise(cc_res = colocalization_test(cur_data_all())) %>%
-            data.table::as.data.table() %>%
-            dplyr::rename_with(dplyr::starts_with("cc_res."), .fn = ~ stringr::str_remove(.x, "cc_res.")) %>%
-            dplyr::filter(dplyr::if_all(dplyr::starts_with("H"), .fns = ~ !is.na(.x)))
+        cc_save_to <- file.path(out_base_dir, cell_type, condition)
+        if (!dir.exists(cc_save_to)) dir.create(cc_save_to, recursive = TRUE)
 
-          data.table::fwrite(ccres, cc_save_to, verbose = FALSE, showProgress = FALSE)
-        }
+        cat("[I]: Estimating co-localization by coloc for", cell_type, condition, "...\n")
+        ccres <- dplyr::group_by(hm_dat, exposure, outcome, id.outcome) %>%
+          # dplyr::filter(dplyr::if_all(.fns = ~ !is.na(.x))) %>%
+          dplyr::summarise(cc_res = colocalization_test(cur_data_all())) %>%
+          data.table::as.data.table() %>%
+          dplyr::rename_with(dplyr::starts_with("cc_res."), .fn = ~ stringr::str_remove(.x, "cc_res.")) %>%
+          dplyr::filter(dplyr::if_all(dplyr::starts_with("H"), .fns = ~ !is.na(.x)))
 
-        ccp_saveto <- file.path(wk_dir, "cc_plots")
-        if (!dir.exists(ccp_saveto)) dir.create(ccp_saveto, recursive = TRUE)
-        plot_coloc(wk_dir, min_h4 = 0.05, save_to = ccp_saveto, plink_bin = "plink-quiet", bfile = eur_1kg_geno, gffpath = gff_file, override = TRUE)
+        data.table::fwrite(ccres, file.path(cc_save_to, out_file))
       }
     }
   }
