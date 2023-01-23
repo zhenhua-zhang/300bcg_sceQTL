@@ -13,6 +13,8 @@ if [[ ! -d $wkdir ]]; then mkdir -p $wkdir; fi
 # Estimate enrichment by GoShifter
 # GoShifter BASEDIR ANNOTYPE MODE CELLTYPE [CONDITION]
 GoShifter() {
+  if [[ $@ -ne 4 ]]; then echo Not enough parameters! && return -1; fi
+
   local base_dir=$1
   local annotype=$2
   local mode=$3
