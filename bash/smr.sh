@@ -95,12 +95,12 @@ done
 #
 ## SMR analysis
 #
-bfile=$workdir/inputs/reference/genotypes/GRCh38//EUR
+bfile=$workdir/inputs/reference/genotypes/GRCh38/EUR
 # gwas_sum_ma=$workdir/outputs/pseudo_bulk/smr/database/public_gwas/2013_ObesityClass1_ieu-a-90.ma
 # eqtl_summary=$workdir/outputs/pseudo_bulk/smr/database/sceqtl/normal/$celltype
 
 for per_eqtl in B CD4T CD8T Monocytes NK; do
-  for gwas_summary in $out_dir/public_gwas/*.ma; do
+  for gwas_summary in $out_dir/public_gwas/2022_COVID19Release7_HGI-A2-ALL-eur-leave23andme-20220403.ma; do
     per_gwas=$(basename $gwas_summary | sed 's/.ma$//g')
     eqtl_summary=$workdir/outputs/pseudo_bulk/smr/database/sceqtl/normal/$per_eqtl
     # 2.1 SMR, single SNP, cis-eQTL
@@ -151,6 +151,7 @@ done
 #
 ## Plot SMR results
 #
+save_to=$workdir/outputs/pseudo_bulk/smr/plot
 gene_list=$workdir/inputs/reference/SMR/glist-hg38.sorted.strand
 cmp_pool=(
   # ADCY3:2018_BodyMassIndex_ieu-b-40:Monocytes
@@ -162,7 +163,23 @@ cmp_pool=(
   # RNASET2:2015_InflammatoryBowelDisease_ieu-a-31:CD4T
   # RNASET2:2015_UlcerativeColitis_ieu-a-32:CD4T
   # RNASET2:2015_CrohnsDisease_ieu-a-30:CD4T
-  EXOSC9:2014_Height_ieu-a-89:Monocytes
+  # RNASET2:2015_InflammatoryBowelDisease_ieu-a-31:Monocytes
+  # RNASET2:2015_UlcerativeColitis_ieu-a-32:Monocytes
+  # RNASET2:2015_CrohnsDisease_ieu-a-30:Monocytes
+  # RNASET2:2015_InflammatoryBowelDisease_ieu-a-31:NK
+  # RNASET2:2015_UlcerativeColitis_ieu-a-32:NK
+  # RNASET2:2015_CrohnsDisease_ieu-a-30:NK
+  # RNASET2:2015_InflammatoryBowelDisease_ieu-a-31:B
+  # RNASET2:2015_UlcerativeColitis_ieu-a-32:B
+  # RNASET2:2015_CrohnsDisease_ieu-a-30:B
+  # EXOSC9:2014_Height_ieu-a-89:Monocytes
+  # CD55:2014_Schizophrenia_ieu-b-42:CD8T
+  # KANSL1:2022_COVID19Release7_HGI-A2-ALL-eur-leave23andme-20220403:CD4T
+  # KANSL1:2022_COVID19Release7_HGI-A2-ALL-eur-leave23andme-20220403:CD8T
+  CD55:2022_COVID19Release7_HGI-A2-ALL-eur-leave23andme-20220403:Monocytes
+  CD55:2015_InflammatoryBowelDisease_ieu-a-31:Monocytes
+  CD55:2015_UlcerativeColitis_ieu-a-32:Monocytes
+  CD55:2015_CrohnsDisease_ieu-a-30:Monocytes
 )
 
 for per_cmp in ${cmp_pool[@]}; do
@@ -178,16 +195,16 @@ for per_cmp in ${cmp_pool[@]}; do
     --probe-wind 800 \
     --gene-list $gene_list \
     --peqtl-smr 5e-6 \
-    --out $per_gwas.$per_eqtl
+    --out $save_to/$per_gwas.$per_eqtl
 
   Rscript - <<EOF
 source("~/Downloads/smr_plot/plot/plot_SMR.r")
-SMRData <- ReadSMRData("plot/$per_gwas.$per_eqtl.$per_probe.txt")
-pdf("$per_gwas.$per_eqtl.$per_probe.SNP_effect.pdf")
+SMRData <- ReadSMRData("$save_to/plot/$per_gwas.$per_eqtl.$per_probe.txt")
+pdf("$save_to/$per_gwas.$per_eqtl.$per_probe.SNP_effect.pdf", width = 5, height = 7)
 SMREffectPlot(data=SMRData)
 dev.off()
 
-pdf("$per_gwas.$per_eqtl.$per_probe.locus_plot.pdf")
+pdf("$save_to/$per_gwas.$per_eqtl.$per_probe.locus_plot.pdf", width = 7, height = 7)
 SMRLocusPlot(data=SMRData, smr_thresh=5e-2, heidi_thresh=0.05, plotWindow=800, max_anno_probe=16)
 dev.off()
 EOF
