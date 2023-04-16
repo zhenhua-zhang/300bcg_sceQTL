@@ -1,12 +1,12 @@
 #
 ## Others
 #
-.rbcsignore
 archived/
 tools/
-**/*.simg
-misc
+misc/
+.rbcsignore
 **/.DS_Store
+**/*.simg
 
 #
 ## R lang
