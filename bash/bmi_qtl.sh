@@ -173,11 +173,11 @@ bcftools reheader -s $vcf_sample_name_map $imputed_chr_filtered \
 #
 ## QTL mapping
 #
-# QTLtools
-# Covariants, male:1, female:2, using the `gwas` subcommand
 pheno_dir=$projdir/outputs/300OB/phenotypes
 qtl_dir=$projdir/outputs/300OB/qtl
 
+# QTLtools
+# Covariants, male:1, female:2, using the `gwas` subcommand
 bgzip $pheno_dir/qtl_phenotype.QTLtools.$phenotype.bed
 tabix $pheno_dir/qtl_phenotype.QTLtools.$phenotype.bed.gz
 
@@ -227,7 +227,6 @@ plink \
   --out $qtl_dir/PLINK/qtl.linear.$phenotype \
   --allow-no-sex
 
-
 # Model: BMI ~ G x Monocyte-related-traits + age + gender. PLINK
 plink \
   --linear interaction \
@@ -238,10 +237,10 @@ plink \
   --out $qtl_dir/PLINK/qtl.linear.$phenotype.by_$interaction_covar \
   --allow-no-sex
 
+
 #
 ## Plotting
 #
-
 # QQplot of QTLtools results.
 Rscript ~/tools/QTLtools/script/plotTrans.R \
   $projdir/outputs/300OB/qtl/QTLtools/QQplot.$phenotype.pdf \

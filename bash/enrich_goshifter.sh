@@ -2,7 +2,7 @@
 # CIS-BP database version: 8-1-2019 Build version 2.00
 proj_dir=~/Documents/projects/wp_bcg_eqtl
 
-wkdir=$proj_dir/outputs/pseudo_bulk/outcomes/annotation_enrichment
+wkdir=$proj_dir/outputs/pseudo_bulk/enrichment
 gffile=$proj_dir/inputs/annotations/homo_sapiens.GRCh38.Regulatory_Build.regulatory_features.20210107.gff
 
 LDMATDIR=$HOME/Documents/projects/wp_bcg_eqtl/inputs/annotations/goshifter_ld
@@ -11,33 +11,34 @@ GOSHIFTERSIMG=$HOME/Documents/projects/wp_bcg_eqtl/scripts/singularity/goshifter
 if [[ ! -d $wkdir ]]; then mkdir -p $wkdir; fi
 
 # Estimate enrichment by GoShifter
-# GoShifter BASEDIR ANNOTYPE MODE CELLTYPE [CONDITION]
+# GoShifter BASEDIR ANNOTYPE MODEL CELLTYPE [CONDITION]
 GoShifter() {
-  if [[ $@ -ne 4 ]]; then echo Not enough parameters! && return -1; fi
+  if [[ $@ -lt 4 ]]; then echo Not enough parameters! && return -1; fi
 
   local base_dir=$1
   local annotype=$2
-  local mode=$3
+  local model=$3
   local celltype=$4
 
-  ann_file=$base_dir/outcomes/annotation_enrichment/annotation/$annotype.bed.gz
-  local in_dir=$base_dir/$mode/$celltype
-  local out_dir=$base_dir/outcomes/annotation_enrichment/$mode/$celltype
+  local in_dir=$base_dir/$model/$celltype
+  local out_dir=$base_dir/enrichment/snp/$model/$celltype
+  local ann_file=$base_dir/enrichment/annotation/$annotype.bed.gz
+
   if [[ -n $5 ]]; then
     local condition=$5
-    in_dir=$base_dir/$mode/$celltype/$condition
-    out_dir=$base_dir/outcomes/annotation_enrichment/$mode/$celltype/$condition
+    local in_dir=$base_dir/$model/$celltype/$condition
+    local out_dir=$base_dir/enrichment/snp/$model/$celltype/$condition
   fi
 
   if [[ ! -d $out_dir ]]; then mkdir -p $out_dir; fi
 
-  awk 'NR==1{print "SNP\tChrom\tBP";next}{print $1"\tchr"$16"\t"$17}' \
+  awk 'NR==1{print "SNP\tChrom\tBP"; next} {print $1"\tchr"$16"\t"$17}' \
     $in_dir/top_qtl_results_all_FDR0.05.txt >| $out_dir/snp_pos.txt
 
   singularity exec --env APPEND_PATH=$HOME/tools/bin $GOSHIFTERSIMG goshifter.py \
-    --rsquared 0.6 \
     --ld $LDMATDIR \
     --permute 2000 \
+    --rsquared 0.6 \
     --annotation $ann_file \
     --out $out_dir/$annotype \
     --snpmap $out_dir/snp_pos.txt \
@@ -98,5 +99,14 @@ for annotype in $wkdir/annotation/*.nkcell.bed.gz; do
         done
       fi
     done
+  done
+done
+
+
+mode="normal"
+for annotype in $wkdir/annotation/*.txt; do
+  annotype=$(basename ${annotype/.txt/})
+  for celltype in Monocytes CD{4,8}T NK B; do
+    GoShifter $proj_dir/outputs/pseudo_bulk/enrichment $annotype $mode $celltype
   done
 done

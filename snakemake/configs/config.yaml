@@ -1,0 +1,33 @@
+cluster:
+  mkdir -p logs/{rule} &&
+  sbatch
+    --parsable
+    --qos={resources.qos}
+    --time={resources.time}
+    --mem={resources.mem}
+    --partition={resources.partition}
+    --cpus-per-task={resources.cpus_per_task}
+    --job-name=snakemake-{rule}
+    --output=logs/{rule}/%j-%u-{rule}.out
+
+default-resources:
+  - account="zzhang"
+  - qos="normal"
+  - partition="cpu"
+  - time="4:59:0"
+  - mem="8G"
+  - cpus_per_task=1
+
+jobs: 200
+scheduler: greedy
+use-conda: False
+local-cores: 1
+keep-going: True
+latency-wait: 60
+restart-times: 0
+printshellcmds: True
+cluster-cancel: "scancel"
+cluster-status: "slurm-status"
+rerun-incomplete: True
+max-jobs-per-second: 10
+max-status-checks-per-second: 1

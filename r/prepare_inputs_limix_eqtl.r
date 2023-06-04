@@ -82,8 +82,8 @@ add_peer <- function(cov_path, exp_path, n_peers = 10, n_cov_peers = 5, n_iters 
 
 
 # The mode to prepare phenotypes, covariants, and sample map.
+# mode <- "pseudo_time"
 mode <- "pseudo_bulk"
-mode <- "pseudo_time"
 
 # Chunk size used to split the genome
 chunk_size <- 1000000
@@ -158,88 +158,6 @@ if (!file.exists(save_to)) {
 
 
 #
-## Load selected cells, pseudo-time
-#
-work_dir <- file.path(proj_dir, "outputs/pseudo_time/trajectory")
-
-all_windows <- list(
-  "win_1" = c("win_1", "cellnames_cd4_traj1.txt"),
-  "win_2" = c("win_2", "cellnames_cd4_traj2.txt"),
-  "win_3" = c("win_3", "cellnames_cd4_traj3.txt"),
-  "win_4" = c("win_4", "cellnames_cd4_traj5.txt")
-)
-
-
-group_idx <- c("clusters1", "ids")
-tar_cells <- lapply(all_windows, FUN = function(per_traj) {
-  per_win <- per_traj[1]
-  per_file <- per_traj[2]
-
-  tab_path <- file.path(work_dir, per_file)
-  tar_cells <- data.table::fread(tab_path) %>% dplyr::mutate(traj = paste0("trajectory_", per_win))
-
-  sub_cells <- pbmc[, tar_cells$cellname]
-
-  n_ind_per_win <- sub_cells@meta.data$ids %>% unique() %>% length()
-  n_cell_median <- sub_cells@meta.data$ids %>% table() %>% median()
-  n_cell_min <- sub_cells@meta.data$ids %>% table() %>% min()
-  n_cell_max <- sub_cells@meta.data$ids %>% table() %>% max()
-
-  cat("Nr. indivduals per window:", n_ind_per_win, "\n")
-  cat("Nr. median cells a window:", n_cell_median, "\n")
-  cat("Nr. min cells a window:", n_cell_min, "\n")
-  cat("Nr. max cells a window:", n_cell_max, "\n")
-  cat("\n")
-
-  # exp_mat <- AverageExpression(sub_cells, assays = "RNA", group.by = group_idx) %>%
-  #   as.data.frame() %>%
-  #   dplyr::mutate(feature_id = rownames(.)) %>%
-  #   dplyr::rename_with(starts_with("RNA."), .fn = ~ str_remove_all(.x, "RNA|\\.")) %>%
-  #   dplyr::mutate(zero_ratio = rowSums(. == 0) / dim(.)[2]) %>%
-  #   dplyr::filter(zero_ratio < max_zero_ratio) %>%
-  #   dplyr::relocate(feature_id)
-
-  # cov_mat <- sub_cells@meta.data %>%
-  #   as.data.frame() %>%
-  #   dplyr::filter(!clusters1 %in% celltype_blacklist) %>%
-  #   dplyr::select(one_of(group_idx), age, gender) %>%
-  #   dplyr::distinct() %>%
-  #   dplyr::mutate(
-  #     clusters1 = str_remove_all(clusters1, "[ +]"),
-  #     gender = if_else(gender == "m", 0, 1),
-  #     sample_id = str_c(clusters1, ids, sep = "_")
-  #   ) %>%
-  #   dplyr::select(-c(clusters1, ids)) %>%
-  #   dplyr::relocate(sample_id)
-
-  # smp_map <- sub_cells@meta.data %>%
-  #   as.data.table() %>%
-  #   dplyr::filter(!clusters1 %in% celltype_blacklist) %>%
-  #   dplyr::select(one_of(group_idx)) %>%
-  #   dplyr::distinct() %>%
-  #   dplyr::mutate(
-  #     clusters1 = str_remove_all(clusters1, "[ +]"),
-  #     sample_id = str_c(clusters1, ids, sep = "_")
-  #   ) %>%
-  #   dplyr::select(ids, sample_id)
-
-  # save_to <- file.path(proj_dir, "inputs/pseudo_time/CD4T", per_win)
-  # if (!dir.exists(save_to)) dir.create(save_to, recursive = TRUE)
-
-  # fwrite(exp_mat, file.path(save_to, "phenotypes.tsv"), sep = "\t")
-  # fwrite(cov_mat, file.path(save_to, "covariates.tsv"), sep = "\t")
-  # fwrite(smp_map, file.path(save_to, "sample_mapping.tsv"), col.names = FALSE, sep = "\t")
-
-  # cov_wp_tab <- add_peer(file.path(save_to, "covariates.tsv"), file.path(save_to, "phenotypes.tsv"))
-  # cov_wp_tab %>% data.table::fwrite(file.path(save_to, "covariates_wpeer.tsv"), sep = "\t")
-
-  sub_cells
-})
-
-
-
-
-#
 ## Prepare phenotypes, covariates, and sample map by cell type, pseudo-bulk
 #
 common_features <- feature_tab$feature_id %>% unique()
@@ -304,10 +222,7 @@ if (mode == "single_cell") {
     AverageExpression(assays = "RNA", group.by = group_idx) %>%
     as.data.frame() %>%
     dplyr::mutate(feature_id = rownames(.)) %>%
-    dplyr::rename_with(
-      starts_with("RNA."),
-      .fn = ~ str_remove_all(.x, "RNA|\\.")
-    ) %>%
+    dplyr::rename_with(starts_with("RNA."), .fn = ~ str_remove_all(.x, "RNA|\\.")) %>%
     dplyr::mutate(zero_ratio = rowSums(. == 0) / dim(.)[2]) %>%
     dplyr::filter(zero_ratio < max_zero_ratio) %>%
     dplyr::relocate(feature_id)
@@ -424,6 +339,5 @@ feature_tab %>%
   dplyr::select(chunk) %>%
   unique() %>%
   fwrite(file.path(proj_dir, "inputs/chunks_file.txt"), col.names = FALSE)
-
 
 # vim: set ai tw=200:

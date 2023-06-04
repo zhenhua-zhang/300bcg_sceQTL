@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 def get_opts():
     par = ArgumentParser()
     par.add_argument("-x", "--pg-pairs", nargs="*", required=True,
-                     help="Phenotype-genotype pairs. E.g., IRF7:rs7113204."
+                     help="Phenotype-genotype pairs. E.g., rs115613985:GZMK."
                      " Multiple pairs should be splitted by space. Required")
     par.add_argument("-g", "--genotype-file", required=True,
                      help="File includes variants in VCF format. Required")
@@ -68,8 +68,7 @@ def fetch_var_by_rsid(gntp_file: str, snp_ids: tuple):
         else:
             snp_order = line.alleles
             for smp_idx, per_smp in line.samples.items():
-                gntp = "".join(
-                    sorted(per_smp.alleles, key=lambda x: snp_order.index(x)))
+                gntp = "".join(sorted(per_smp.alleles, key=lambda x: snp_order.index(x)))
 
                 if per_snp_id in var_info:
                     var_info[per_snp_id].update({smp_idx: gntp})
@@ -101,14 +100,14 @@ def draw_snpeff(
     axe = sns.boxplot(
         x=cond_col, y=phtp_col, order=cond_order, hue=gntp_col,
         hue_order=hue_order, data=mat, ax=axe, dodge=do_dodge,
-        showfliers=(not drop_outlier)
+        showfliers=(not drop_outlier), palette="Set2"
     )
     y_lims = axe.get_ylim()
 
     axe = sns.stripplot(
         x=cond_col, y=phtp_col, order=cond_order, hue=gntp_col,
         hue_order=hue_order, data=mat, ax=axe, dodge=do_dodge,
-        linewidth=1, edgecolor="gray"
+        linewidth=1, edgecolor="gray", palette="Set2"
     )
 
     if drop_outlier:
@@ -118,7 +117,7 @@ def draw_snpeff(
     plt.legend(hdl[0:len(hue_order)], lbl[0:len(hue_order)], title=gntp_col)
 
     axe.set_ylabel("Level of " + phtp_col)
-    axe.set_xlabel("Conditions")
+    axe.set_xlabel("")
     axe.spines["top"].set_visible(False)
     axe.spines["right"].set_visible(False)
 
@@ -143,8 +142,8 @@ def main():
     fig_size = opt.fig_size
 
     pg_pairs = [pp.split(":") for pp in pg_pairs]
-    snp_ids = tuple([pp[1] for pp in pg_pairs])
-    tar_features = [pp[0] for pp in pg_pairs]
+    snp_ids = tuple([pp[0] for pp in pg_pairs])
+    tar_features = [pp[1] for pp in pg_pairs]
 
     if cond_map:
         cond_map = OrderedDict([pp.split(":") for pp in cond_map])
@@ -170,8 +169,8 @@ def main():
         info_mat[cond_col] = (info_mat[cond_col]
                               .apply(lambda x, cm: cm[str(x)], cm=cond_map))
 
-    for per_feature, per_snp in pg_pairs:
-        save_to = f"{out_dir}/{per_feature}-{per_snp}.jpg"
+    for per_snp, per_feature in pg_pairs:
+        save_to = f"{out_dir}/{per_feature}-{per_snp}.pdf"
         draw_snpeff(
             info_mat, per_feature, per_snp, cond_col, cond_order, drop_outlier,
             save_to, fig_size

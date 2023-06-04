@@ -4,9 +4,11 @@
 archived/
 tools/
 misc/
-.rbcsignore
+**/.rbcsignore
 **/.DS_Store
+**/*.ipynb
 **/*.simg
+**/*.bk
 
 #
 ## R lang

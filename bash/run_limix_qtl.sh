@@ -2,8 +2,7 @@
 # Author: Zhenhua Zhang
 # E-mail: zhenhua.zhang217@gmail.com
 # Created: 2022 Apr 22
-# Updated: 2022 Jul 27
-
+# Updated: 2023 Feb 08
 
 # A function to set comparison pairs.
 check_term() {
@@ -20,7 +19,7 @@ check_term() {
 
 # Debug mode.
 DEBUG=false
-if [[ $DEBUG == true ]]; then njobs=2; else njobs=500; fi
+if [[ $DEBUG == true ]]; then njobs=1; else njobs=200; fi
 
 
 # Working path.
@@ -63,17 +62,17 @@ fi
 
 # Prepare inputs for each pairs
 if [[ prepare_inputs == true ]]; then
-  for celltype in Monocytes CD4T CD8T NK B; do
-    for cmpair in {T0_LPS,T3m_LPS,T3m_RPMI}.vs.T0_RPMI T3m_LPS.vs.T3m_RPMI; do
-      case_cond=$(cut -f1 -d. <<<$cmpair)
-      ctrl_cond=$(cut -f3 -d. <<<$cmpair)
+  for cell_type in Monocytes CD4T CD8T NK B; do
+    for per_cmp in {T0_LPS,T3m_LPS,T3m_RPMI}.vs.T0_RPMI T3m_LPS.vs.T3m_RPMI; do
+      case_cond=$(cut -f1 -d. <<<$per_cmp)
+      ctrl_cond=$(cut -f3 -d. <<<$per_cmp)
 
-      ctype=$proj_dir/inputs/pseudo_bulk/$celltype
-      mkdir -p $ctype/$cmpair
+      per_celltype=$proj_dir/inputs/pseudo_bulk/$cell_type
+      mkdir -p $per_celltype/$per_cmp
 
       # Expression matrix
       awk -v CC=$case_cond -v CT=$ctrl_cond \
-        -f- <<'EOF' $ctype/phenotypes.tsv >| $ctype/$cmpair/phenotypes.tsv
+        -f- <<'EOF' $per_celltype/phenotypes.tsv >| $per_celltype/$per_cmp/phenotypes.tsv
 NR == 1 {
   split($0, header, "\t")
   for (i in header) {
@@ -97,15 +96,15 @@ EOF
 
     # General covariates
     grep -e sample_id -e $case_cond -e $ctrl_cond \
-      $ctype/covariates.tsv >| $ctype/$cmpair/covariates.tsv
+      $per_celltype/covariates.tsv >| $per_celltype/$per_cmp/covariates.tsv
 
     # covariates with PEERs
     grep -e sample_id -e $case_cond -e $ctrl_cond \
-      $ctype/covariates_wpeer.tsv >| $ctype/$cmpair/covariates_wpeer.tsv
+      $per_celltype/covariates_wpeer.tsv >| $per_celltype/$per_cmp/covariates_wpeer.tsv
 
     # Sample to individuals mapping
     grep -e $case_cond -e $ctrl_cond \
-      $ctype/sample_mapping.tsv >| $ctype/$cmpair/sample_mapping.tsv
+      $per_celltype/sample_mapping.tsv >| $per_celltype/$per_cmp/sample_mapping.tsv
     done
   done
 fi
@@ -116,117 +115,64 @@ eval "$(conda shell.bash hook)"
 conda deactivate
 conda activate limix_qtl
 
-
-tmstmp=$(date +%Y%m%d%H%M%S)
-smfile=$proj_dir/scripts/snakemake/300bcg_limix_qtl.smk
-
 #
 ## Run the pipeline by Snakemake, pseudo-bulk
 #
 # Submit jobs to do the regression analysis.
 mode=pseudo_bulk
-for model in normal interaction; do
-  model=interaction
-  for ctype in Monocytes CD4T CD8T NK B; do
-    ctype=CD4T
-    out_dir=$proj_dir/outputs/$mode/$model/$ctype
-    echo $out_dir $tmstmp
+smfile=$proj_dir/scripts/snakemake/300bcg_limix_qtl.smk
+smconf=$proj_dir/scripts/snakemake/configs
+# for model in normal interaction per_condition; do
+for model in interaction; do
+  for per_celltype in Monocytes CD4T CD8T NK B; do
+    out_dir=$proj_dir/outputs/$mode/summary_statistic/$model/$per_celltype
+    echo $out_dir
 
     # Save the log files.
     if [[ ! -d $out_dir/logs ]]; then mkdir -p $out_dir/logs; fi
 
     # Unlock the control folder of Snakemake.
-    snakemake --unlock -s $smfile -C runMode=. cellType=. compPair=. evalModel=. interTerm=.
+    snakemake --unlock -s $smfile -C run_mode=. cell_type=. condition=. eval_model=. inter_term=.
 
     if [[ $model == normal ]]; then
       # Include all samples to estimate shared genetic effects
-      dr_log=$out_dir/logs/${tmstmp}_${model}_smdry.log
-      snakemake -r -n -c 1 -s $smfile -C runMode=$mode cellType=$ctype compPair=. evalModel=$model usePEER=true 1>&2 >| $dr_log
+      snakemake -nrc 1 -s $smfile --profile $smconf \
+        -C run_mode=$mode cell_type=$per_celltype condition=. eval_model=$model use_peer=true \
+        1>&2 >| $out_dir/logs/${model}_smdry.log
 
       # Run
-      errf=$out_dir/logs/%j-${tmstmp}_${model}_sbatch.err
-      outf=$out_dir/logs/%j-${tmstmp}_${model}_sbatch.out
-      snakemake -k -j $njobs -w 60 -s $smfile \
-        -C runMode=$mode cellType=$ctype compPair=. evalModel=$model usePEER=true \
-        --cluster 'sbatch -t 4:59:0 -p cpu -o '$outf' -e '$errf' -J '$model-$ctype' -N 1 --cpus-per-task 1 --ntasks 1 --mem 8G'
-    else
-      # Runs pair-wise comparison for the "interaction" model.
-      # for cmppair in {T0_LPS,T3m_LPS,T3m_RPMI}.vs.T0_RPMI T3m_LPS.vs.T3m_RPMI; do
-      for cmppair in {T0_LPS,T3m_RPMI}.vs.T0_RPMI T3m_LPS.vs.T3m_RPMI; do
-        cmppair=T3m_RPMI.vs.T0_RPMI
-        icterm=$(check_term $cmppair)
+      snakemake -j $njobs -s $smfile --profile $smconf \
+        -C run_mode=$mode cell_type=$per_celltype condition=. eval_model=$model use_peer=true
+    elif [[ $model == interaction ]]; then
+      # Runs pair-wise comparison for the "interaction" model. {T0_LPS,T3m_LPS,T3m_RPMI}.vs.T0_RPMI T3m_LPS.vs.T3m_RPMI
+      for per_cmp in {T0_LPS,T3m_RPMI}.vs.T0_RPMI T3m_LPS.vs.T3m_RPMI; do
+        icterm=$(check_term $per_cmp)
 
         # Snakemake dry-run log.
-        dr_log=$out_dir/logs/${tmstmp}_${model}_${cmppair}_smdry.log
-        snakemake -r -n -c 1 -s $smfile \
-          -C runMode=$mode cellType=$ctype compPair=$cmppair evalModel=$model interTerm=$icterm usePEER=true \
-          1>&2 >| $dr_log
+        snakemake -nrc 1 -s $smfile --profile $smconf \
+          -C run_mode=$mode cell_type=$per_celltype condition=$per_cmp eval_model=$model inter_term=$icterm use_peer=true \
+          1>&2 >| $out_dir/logs/${model}_${per_cmp}_smdry.log
 
         # Run
-        errf=$out_dir/logs/%j-%x-${tmstmp}_${model}_${cmppair}_sbatch.err
-        outf=$out_dir/logs/%j-%x-${tmstmp}_${model}_${cmppair}_sbatch.out
-        snakemake -k -j $njobs -w 60 -s $smfile \
-          -C runMode=$mode cellType=$ctype compPair=$cmppair evalModel=$model interTerm=$icterm usePEER=true \
-          --cluster 'sbatch -t 11:59:0 -o '$outf' -e '$errf' -J '$model-$ctype-$cmppair' -N 1 --cpus-per-task 1 --ntasks 1 --mem 8G'
+        snakemake -j $njobs -s $smfile --profile $smconf \
+          -C run_mode=$mode cell_type=$per_celltype condition=$per_cmp eval_model=$model inter_term=$icterm use_peer=true
+      done
+    elif [[ $model == per_condition ]]; then
+      # Runs per condition.
+      for per_cond in T0_LPS T0_RPMI T3m_LPS T3m_RPMI; do
+        snakemake -nrc 1 -s $smfile --profile $smconf \
+          -C run_mode=$mode cell_type=$per_celltype condition=$per_cond eval_model=$model inter_term=. use_peer=true \
+          1>&2 >| $out_dir/logs/${model}_${per_cond}_smdry.log
+
+        # Run
+        snakemake -j $njobs -s $smfile --profile $smconf \
+          -C run_mode=$mode cell_type=$per_celltype condition=$per_cond eval_model=$model inter_term=. use_peer=true
       done
     fi
   done
 done
 
-
-#
-## Run the pipeline by Snakemake, pseudo-time
-#
-mode=pseudo_time
-# for per_win in win_{1..3}; do
-for per_win in win_4; do
-  for ctype in CD4T; do
-    out_dir=$proj_dir/outputs/$mode/$ctype
-
-    # Save the log files.
-    if [[ ! -d $out_dir/logs ]]; then mkdir -p $out_dir/logs; fi
-
-    # Unlock the control folder of Snakemake.
-    snakemake --unlock -s $smfile -C runMode=. cellType=. compPair=. evalModel=. interTerm=.
-
-    # Include all samples to estimate shared genetic effects
-    dr_log=$out_dir/logs/${tmstmp}_${mode}_smdry.log
-    snakemake -r -n -c 1 -s $smfile \
-      -C runMode=$mode cellType=$ctype compPair=$per_win evalModel=. usePEER=true 1>&2 >| $dr_log
-
-    # Run
-    errf=$out_dir/logs/%j-${tmstmp}_sbatch.err
-    outf=$out_dir/logs/%j-${tmstmp}_sbatch.out
-    snakemake -k -j $njobs -w 60 -s $smfile \
-      -C runMode=$mode cellType=$ctype compPair=$per_win evalModel=. usePEER=true \
-      --cluster 'sbatch -t 1:59:0 -p cpu -o '$outf' -e '$errf' -J '$mode-$ctype' -N 1 --cpus-per-task 1 --ntasks 1 --mem 4G'
-  done
-done
-
-
-# TODO: remove me
-# singularity exec /home/zzhang/Documents/projects/wp_bcg_eqtl/scripts/tools/limix20220510.simg \
-#   Rscript \
-#   /home/zzhang/Documents/projects/wp_bcg_eqtl/scripts/tools/limix_qtl/Limix_QTL/post_processing/multTestCorrect_PipeLine.R \
-#   /home/zzhang/Documents/projects/wp_bcg_eqtl/outputs/pseudo_bulk/interaction/Monocytes/T3m_RPMI.vs.T0_RPMI/ \
-#   /home/zzhang/Documents/projects/wp_bcg_eqtl/outputs/pseudo_bulk/interaction/Monocytes/T3m_RPMI.vs.T0_RPMI/ \
-#   0.05
-# 
-# singularity exec /home/zzhang/Documents/projects/wp_bcg_eqtl/scripts/tools/limix20220510.simg \
-#   python /home/zzhang/Documents/projects/wp_bcg_eqtl/scripts/tools/limix_qtl/Limix_QTL/post_processing/minimal_postprocess.py \
-#   -tfb -sfo \
-#   -id /home/zzhang/Documents/projects/wp_bcg_eqtl/outputs/pseudo_bulk/interaction/Monocytes/T3m_RPMI.vs.T0_RPMI \
-#   -od /home/zzhang/Documents/projects/wp_bcg_eqtl/outputs/pseudo_bulk/interaction/Monocytes/T3m_RPMI.vs.T0_RPMI
-# 
-# singularity exec /home/zzhang/Documents/projects/wp_bcg_eqtl/scripts/tools/limix20220510.simg \
-#   python /home/zzhang/Documents/projects/wp_bcg_eqtl/scripts/tools/limix_qtl/Limix_QTL/post_processing/minimal_postprocess.py \
-#   -tfb -sfo \
-#   -id /home/zzhang/Documents/projects/wp_bcg_eqtl/outputs/pseudo_bulk/interaction/B/T0_LPS.vs.T0_RPMI \
-#   -od /home/zzhang/Documents/projects/wp_bcg_eqtl/outputs/pseudo_bulk/interaction/B/T0_LPS.vs.T0_RPMI
-# 
-# singularity exec /home/zzhang/Documents/projects/wp_bcg_eqtl/scripts/tools/limix20220510.simg \
-#   Rscript \
-#   /home/zzhang/Documents/projects/wp_bcg_eqtl/scripts/tools/limix_qtl/Limix_QTL/post_processing/multTestCorrect_PipeLine.R \
-#   /home/zzhang/Documents/projects/wp_bcg_eqtl/outputs/pseudo_bulk/interaction/B/T0_LPS.vs.T0_RPMI/ \
-#   /home/zzhang/Documents/projects/wp_bcg_eqtl/outputs/pseudo_bulk/interaction/B/T0_LPS.vs.T0_RPMI/ \
-#   0.05
+# Previous cluster log files and command line.
+# errf=$out_dir/logs/%j-%x-${tmstmp}_${model}_${per_cond}_sbatch.err
+# outf=$out_dir/logs/%j-%x-${tmstmp}_${model}_${per_cond}_sbatch.out
+# --cluster 'sbatch -t 9:59:0 -o '$outf' -e '$errf' -J '$model-$per_celltype-$per_cmp' -N 1 --cpus-per-task 1 --ntasks 1 --mem 8G'
