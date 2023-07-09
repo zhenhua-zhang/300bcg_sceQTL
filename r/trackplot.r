@@ -1,8 +1,8 @@
 #!/usr/bin/env Rscript
 # Author: Zhenhua Zhang
 # E-mail: zhenhua.zhang3@helmohltz-hzi.de, zhenhua.zhang217@gmail.com
-# Created: 2022 Oct 22
-# Updated: 2023 Feb 22
+# Created: Oct 22, 2022
+# Updated: Jul 07, 2023
 
 #' Code to generate a track plot by
 options(stringsAsFactors = FALSE, data.table.verbose = FALSE, Gviz.ucscUrl =  "http://genome-euro.ucsc.edu/cgi-bin/")
@@ -30,19 +30,16 @@ genome <- "hg38"
 base_dir <- file.path(proj_dir, "outputs/pseudo_bulk")
 marker_snp <- "rs62063281"; marker_feature <- "ADCY3"
 marker_snp <- "rs2564978"; marker_feature <- "CD55"
-marker_snp <- "rs11575895"; marker_feature <- "KANSL1"
-marker_snp <- "rs2564978"; marker_feature <- "CD55"
 marker_snp <- "rs11080327"; marker_feature <- "SLFN5"
+marker_snp <- "rs883416"; marker_feature <- "SLFN5"; marker_snp_pos <- 35243422
 
 sumstat_query <- tibble::tribble(
   ~feature_id, ~model, ~cell_type, ~condition, ~gwas_id, ~start, ~end,
-  # "KANSL1", "normal", "CD4T", "", "", 0, 0,
-  # "KANSL1", "normal", "CD8T", "", "", 0, 0,
-  # "KANSL1", "normal", "CD4T", "", "COVID19Release7", 0, 0,
   # "CD55", "normal", "Monocytes", "", "", 0, 0,
   # "CD55", "normal", "B", "", "", 0, 0,
+  # "SLFN5", "interaction", "CD8T", "T0_LPS.vs.T0_RPMI", "", 0, 0,
   "SLFN5", "interaction", "CD4T", "T0_LPS.vs.T0_RPMI", "", 0, 0,
-  "SLFN5", "interaction", "CD8T", "T0_LPS.vs.T0_RPMI", "", 0, 0,
+  # "SLFN5", "interaction", "CD4T", "T0_LPS.vs.T0_RPMI", "COVID19PlosOne", 0, 0,
   "SLFN5", "interaction", "CD4T", "T0_LPS.vs.T0_RPMI", "COVID19Release7", 0, 0
 ) %>%
 dplyr::filter(feature_id == marker_feature)
@@ -81,7 +78,7 @@ sumstat <- apply(sumstat_query, 1, function(vec, .base_dir, .marker_snp) {
   }
   tab <- dplyr::mutate(tab, chrom = stringr::str_remove_all(chrom, "chr"))
 
-  ylim_vec <- c(min(tab$log10_pval) * 0.9, max(tab$log10_pval) * 1.1)
+  ylim_vec <- c(0, 7)
   if (.marker_snp %in% tab$snp_id)
     marker_snp_track <- dplyr::filter(tab, snp_id == .marker_snp) %>%
       dplyr::select(-c(feature_id, snp_id)) %>%
@@ -124,12 +121,11 @@ ideogram_tk <- IdeogramTrack(genome = "hg38", chromosome = plot_chrom, backgroun
 genome_axis_tk <- GenomeAxisTrack(background.title = "white")
 
 # GeneHancer track
-genehancer_file <- file.path(proj_dir, "inputs/annotations/GeneHancer/GeneHancer.KANSL1.chr17_36438746_55814845.grch38.csv")
 genehancer_file <- file.path(proj_dir, "inputs/annotations/GeneHancer/GeneHancer.CD55.chr1_205376872_209305771.grch38.csv")
 genehancer_file <- file.path(proj_dir, "inputs/annotations/GeneHancer/GeneHancer.SLFN5.chr17_33729164_36787563.grch38.csv")
 genehancer_tab <- data.table::fread(genehancer_file) %>%
   dplyr::filter(geneName %in% c("CD55", "KANSL1", "SLFN5")) %>%
-  dplyr::mutate(score = dplyr::if_else(score > 25, as.integer(20), score))
+  dplyr::mutate(score = dplyr::if_else(score > 25, as.integer(22.5), score))
 anchor_enhancer <- genehancer_tab %>%
   dplyr::select(geneHancerChrom:geneHancerEnd) %>%
   makeGRangesFromDataFrame(seqnames.field = "geneHancerChrom", start.field = "geneHancerStart", end.field = "geneHancerEnd")
@@ -229,8 +225,8 @@ token <- "interaction."
 track_list <- c(ideogram_tk, genome_axis_tk, sumstat_tk, atacseq_tk, genehancer_tk, gene_pos_tk)
 track_height_list <- c(.7, 1, rep(3.25, length(sumstat_tk)), rep(1, length(atacseq_tk)), 3, 3.25)
 save_plot_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL", paste0(token, marker_feature, "-", marker_snp, ".track_plot.eQTL_effect.pdf"))
-pdf(save_plot_to, width = 7, height = 11)
-plotTracks(track_list, sizes = track_height_list, from = plot_start + 400000, to = plot_end - 400000)
+pdf(save_plot_to, width = 6, height = 9)
+plotTracks(track_list, sizes = track_height_list, from = plot_start + 300000, to = plot_end - 300000)
 dev.off()
 
 

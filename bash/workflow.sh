@@ -269,13 +269,15 @@ EOF
 
 
 #
-## Plot ASoC of rs2564978
+## Plot ASoC
 #
 asoc_snps_for_rcplot=$proj_dir/outputs/COVID_MHH50/heter-snps_metainfo.two_conditions.csv
+asoc_snps_for_rcplot=$proj_dir/outputs/COVID_MHH50/heter-snps_metainfo.csv
 bamdir=/vol/projects/BIIM/Covid_50MHH/ASoC/outputs/scATAC-seq/run_v1/optdir/bam_pct_asoc/unmerged
 snpid=rs2564978
 snpid=rs11080327
 
+python $proj_dir/scripts/py3/plot_asoc_rc.py -h
 python $proj_dir/scripts/py3/plot_asoc_rc.py \
   -r $asoc_snps_for_rcplot \
   -i $snpid \

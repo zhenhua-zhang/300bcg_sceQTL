@@ -123,25 +123,24 @@ mode=pseudo_bulk
 smfile=$proj_dir/scripts/snakemake/300bcg_limix_qtl.smk
 smconf=$proj_dir/scripts/snakemake/configs
 # for model in normal interaction per_condition; do
-for model in interaction; do
+for model in per_condition; do
   for per_celltype in Monocytes CD4T CD8T NK B; do
     out_dir=$proj_dir/outputs/$mode/summary_statistic/$model/$per_celltype
-    echo $out_dir
 
     # Save the log files.
     if [[ ! -d $out_dir/logs ]]; then mkdir -p $out_dir/logs; fi
 
     # Unlock the control folder of Snakemake.
-    snakemake --unlock -s $smfile -C run_mode=. cell_type=. condition=. eval_model=. inter_term=.
+    snakemake --unlock -d $out_dir -s $smfile -C run_mode=. cell_type=. condition=. eval_model=. inter_term=.
 
     if [[ $model == normal ]]; then
       # Include all samples to estimate shared genetic effects
-      snakemake -nrc 1 -s $smfile --profile $smconf \
+      snakemake -nrc 1 -d $out_dir -s $smfile --profile $smconf \
         -C run_mode=$mode cell_type=$per_celltype condition=. eval_model=$model use_peer=true \
         1>&2 >| $out_dir/logs/${model}_smdry.log
 
       # Run
-      snakemake -j $njobs -s $smfile --profile $smconf \
+      snakemake -j $njobs -d $out_dir -s $smfile --profile $smconf \
         -C run_mode=$mode cell_type=$per_celltype condition=. eval_model=$model use_peer=true
     elif [[ $model == interaction ]]; then
       # Runs pair-wise comparison for the "interaction" model. {T0_LPS,T3m_LPS,T3m_RPMI}.vs.T0_RPMI T3m_LPS.vs.T3m_RPMI
@@ -149,30 +148,25 @@ for model in interaction; do
         icterm=$(check_term $per_cmp)
 
         # Snakemake dry-run log.
-        snakemake -nrc 1 -s $smfile --profile $smconf \
+        snakemake -nrc 1 -d $out_dir -s $smfile --profile $smconf \
           -C run_mode=$mode cell_type=$per_celltype condition=$per_cmp eval_model=$model inter_term=$icterm use_peer=true \
           1>&2 >| $out_dir/logs/${model}_${per_cmp}_smdry.log
 
         # Run
-        snakemake -j $njobs -s $smfile --profile $smconf \
+        snakemake -j $njobs -d $out_dir -s $smfile --profile $smconf \
           -C run_mode=$mode cell_type=$per_celltype condition=$per_cmp eval_model=$model inter_term=$icterm use_peer=true
       done
     elif [[ $model == per_condition ]]; then
       # Runs per condition.
       for per_cond in T0_LPS T0_RPMI T3m_LPS T3m_RPMI; do
-        snakemake -nrc 1 -s $smfile --profile $smconf \
+        snakemake -nrc 1 -d $out_dir -s $smfile --profile $smconf \
           -C run_mode=$mode cell_type=$per_celltype condition=$per_cond eval_model=$model inter_term=. use_peer=true \
           1>&2 >| $out_dir/logs/${model}_${per_cond}_smdry.log
 
         # Run
-        snakemake -j $njobs -s $smfile --profile $smconf \
+        snakemake -j $njobs -d $out_dir -s $smfile --profile $smconf \
           -C run_mode=$mode cell_type=$per_celltype condition=$per_cond eval_model=$model inter_term=. use_peer=true
       done
     fi
   done
 done
-
-# Previous cluster log files and command line.
-# errf=$out_dir/logs/%j-%x-${tmstmp}_${model}_${per_cond}_sbatch.err
-# outf=$out_dir/logs/%j-%x-${tmstmp}_${model}_${per_cond}_sbatch.out
-# --cluster 'sbatch -t 9:59:0 -o '$outf' -e '$errf' -J '$model-$per_celltype-$per_cmp' -N 1 --cpus-per-task 1 --ntasks 1 --mem 8G'

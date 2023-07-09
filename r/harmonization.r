@@ -1,13 +1,16 @@
 #!/usr/bin/env Rscript
+# File: harmonization.r
+# Author: Zhenhua Zhang
+# E-mail: zhenhua.zhang217@gmail.com
+# Created: Oct 12, 2022
+# Updated: Jul 07, 2023
+
 
 # NOTE:
 #   1. limix_qtl estimate the additive effects of major alleles and report MAF in the summary statistics.
 
 # Options beforehand
 options(stringsAsFactors = FALSE, data.table.verbose = FALSE, future.globals.maxSize = 10000 * 1024^2)
-
-#' Harmonizing variants of outcome and exposure for MR and COLOC analysis
-# quit(save = "no")
 
 # Options, packages used in the analysis
 suppressPackageStartupMessages({
@@ -159,7 +162,8 @@ pub_gwas_list <- list(
 
   # # Infectious disease
   # "ebi-a-GCST010780" = c("2020_COVID19Release4_ebi-a-GCST010780.vcf.gz", NA),
-  "HGI-A2-ALL-eur-leave23andme-20220403" = c("2022_COVID19Release7_HGI-A2-ALL-eur-leave23andme-20220403.vcf.gz", NA),
+  # "HGI-A2-ALL-eur-leave23andme-20220403" = c("2022_COVID19Release7_HGI-A2-ALL-eur-leave23andme-20220403.vcf.gz", NA),
+  "2023_COVID19PlosOne" = c("2023_COVID19PlosOne_Severity.vcf.gz", NA),
 
   # # Brain disorders
   # "ieu-b-5067" = c("2022_AlzheimerDiseases_ieu-b-5067.vcf.gz", NA),

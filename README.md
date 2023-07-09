@@ -110,24 +110,32 @@ rs2288553, rs11770116, rs2288548, rs2288549, rs4731448, rs2278293, rs2278294, rs
 
 ## TODO
 
-### 2023 Jan 26
+### May 23, 2023
+- [ ] Check if it is possible to estimate the expression of SLFN5 from Leon's side
+- [ ] Send a email to ask for summary statistics of SLFN5 gene (the PlosOne COVID-19 GWAS paper, https://doi.org/10.1371/journal.pone.0279356)
+- [ ] Plot the eQTL effect of PlosOne COVID-19 GWAS summary statistics
+- [ ] Update the figure 4 C using LMM to estimate the eQTL using sigle-cell
+- [ ] Move figure 4 F to supplementary, change it into a schematic plot
+- [ ] Replication of main effect eQTLs in GTEx and eQTLGen
+
+### May 23, 2023
 - [x] ADCY3 ~ BMI + co-variables in 38 300BCG individuals with single-cell RNA-seq, Spearman's rho/linear mixed model.
       NOTE: no significant results
 - [x] BMI ~ Genotype + co-variables in whole 300BCG cohort.
 
-### 2023 Feb 14
+### May 23, 2023
 - [x] Convert COVID-19 GWAS summary statistic into GWAS VCF format. Clump the SS and decide the top SNPs.
 
-### 2023 Feb 17
+### May 23, 2023
 - [x] Co-expression between all genes and CD55
 - [x] Cell type specific eQTL of COVID-19 associated SNPs.
 - [x] *trans*-eQTL for all CD55-coexpressed genes, where the SNPs are significant (?) associated with CD55. Only one gene in CD8T passed 5e-5 threshold.
 
-### 2023 Feb 19
+### May 23, 2023
 - [x] Trans-eQTL of CD55, where the trans loci are 1M closed to the TF that are potentially regulating CD55 expression by GeneCards.
 - [x] Correlation between trans-eQTL Z-scores and CD55 cis-eQTL Z-scores, co-localization-like plot.
 
-### 2023 Feb 21
+### May 23, 2023
 - [-] Peak-to-gene link by MHH50 data or Hi-C by Javierre el al [PMID: 27863249](https://pubmed.ncbi.nlm.nih.gov/27863249)
 - [ ] Methylation changes along the gene body and surroundings by Roy et al [PMID: 34706222](https://pubmed.ncbi.nlm.nih.gov/34706222)
 - [ ] A table to collect all information about CD55/KANSL1 associated SNPs

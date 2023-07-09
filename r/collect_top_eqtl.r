@@ -44,6 +44,36 @@ load_eqtl_tab <- function(dir, fdr = 0.05, fdr_col = "global_corrected_pValue", 
 }
 
 
+load_eqtl_tab.v2 <- function(dir, max_p_val = 1e-5, p_val_col = "p_value", other_info = NULL) {
+  joinby <- c(
+    "snp_id", "ensembl_gene_id", "feature_start", "feature_end", "feature_chromosome", "feature_id", "gene_name",
+    "feature_strand", "n_samples", "n_e_samples", "snp_chromosome", "snp_position", "assessed_allele"
+  )
+
+  discard <- c(
+    "beta", "beta_se", "empirical_feature_p_value", "alpha_param", "beta_param", "call_rate", "maf",
+    "hwe_p", "global_corrected_pValue", "global_corrected_pValue_BH", "global_corrected_pValue_BF"
+  )
+
+  top_qtl_fpath <- file.path(dir, "top_qtl_results_all_FDR.txt")
+  top_qtltab <- data.table::fread(top_qtl_fpath, data.table = FALSE) %>%
+    dplyr::select(-dplyr::one_of(discard)) %>%
+    (function(dat) dat[dat[, p_val_col] <= max_p_val, ])
+
+  all_qtl_fpath <- file.path(dir, "qtl_results_all.txt")
+  all_qtltab <- data.table::fread(all_qtl_fpath, data.table = FALSE)
+
+  cmb_qtltab <- dplyr::right_join(top_qtltab, all_qtltab, by = joinby) %>%
+    dplyr::mutate(QTL = stringr::str_c(gene_name, snp_id, sep = "-"))
+
+  if (!is.null(other_info) && !is.null(names(other_info))) {
+    for (nm in names(other_info)) cmb_qtltab[nm] <- other_info[nm]
+  }
+
+  cmb_qtltab %>% dplyr::filter(dplyr::if_any(dplyr::everything(), ~ !is.na(.x)))
+}
+
+
 proj_dir <- "~/Documents/projects/wp_bcg_eqtl"
 
 # Two model used in the analysis.
@@ -59,7 +89,7 @@ for (celltype in cell_type_vec) {
     if (mode == "normal") {
       run_id <- paste(celltype, "common", sep = "_")
       indir <- file.path(proj_dir, "outputs/pseudo_bulk/summary_statistic", mode, celltype)
-      qtl_tab[[run_id]] <- load_eqtl_tab(indir, fdr = 0.1) %>%
+      qtl_tab[[run_id]] <- load_eqtl_tab.v2(indir) %>%
         dplyr::filter(!is.na(global_corrected_pValue), p_value <= 0.05) %>% #, 0.1 <= alpha_param, alpha_param <= 500, 0.1 <= beta_param, beta_param <= 500) %>%
         dplyr::select(snp_id, snp_chromosome, snp_position, maf, feature_id, p_value, beta, beta_se, global_corrected_pValue) %>%
         dplyr::mutate(celltype = celltype, condition = "Common")
@@ -67,7 +97,7 @@ for (celltype in cell_type_vec) {
       for (cond in condition_vec) {
         run_id <- paste(celltype, cond, sep = "_")
         indir <- file.path(proj_dir, "outputs/pseudo_bulk/summary_statistic", mode, celltype, cond)
-        qtl_tab[[run_id]] <- load_eqtl_tab(indir, fdr = 0.1) %>%
+        qtl_tab[[run_id]] <- load_eqtl_tab.v2(indir) %>%
           dplyr::filter(!is.na(global_corrected_pValue), p_value <= 0.05) %>% #, 0.1 <= alpha_param, alpha_param <= 500, 0.1 <= beta_param, beta_param <= 500) %>%
           dplyr::select(snp_id, snp_chromosome, snp_position, maf, feature_id, p_value, beta, beta_se, global_corrected_pValue) %>%
           dplyr::mutate(celltype = celltype, condition = cond)
@@ -76,11 +106,12 @@ for (celltype in cell_type_vec) {
   }
 }
 
-top_qtl_tab <- Reduce(rbind, qtl_tab) %>%
+top_qtl_vec <- Reduce(rbind, qtl_tab) %>%
   dplyr::select(snp_id, feature_id) %>%
   dplyr::distinct() %>%
   dplyr::mutate(QTL = paste0(snp_id, "-", feature_id)) %>%
-  dplyr::pull(QTL)
+  dplyr::pull(QTL) %>%
+  purrr::discard(~stringr::str_detect(.x, pattern = "HLA-|MT-|RP[LS]"))
 
 all_qtl_tab <- list()
 for (celltype in cell_type_vec) {
@@ -88,20 +119,20 @@ for (celltype in cell_type_vec) {
     if (mode == "normal") {
       run_id <- paste(celltype, "common", sep = "_")
       indir <- file.path(proj_dir, "outputs/pseudo_bulk/summary_statistic", mode, celltype)
-      all_qtl_tab[[run_id]] <- load_eqtl_tab(indir, fdr = 0.1) %>%
-        # dplyr::filter(0.1 <= alpha_param, alpha_param <= 500, 0.1 <= beta_param, beta_param <= 500) %>%
+      all_qtl_tab[[run_id]] <- load_eqtl_tab.v2(indir, fdr = 0.1) %>%
+        dplyr::filter(0.1 <= alpha_param, alpha_param <= 500, 0.1 <= beta_param, beta_param <= 500) %>%
         dplyr::select(snp_id, snp_chromosome, snp_position, maf, feature_id, p_value, beta, beta_se, global_corrected_pValue) %>%
         dplyr::mutate(celltype = celltype, condition = "Common", QTL = paste0(snp_id, "-", feature_id)) %>%
-        dplyr::filter(QTL %in% top_qtl_tab)
+        dplyr::filter(QTL %in% top_qtl_vec)
     } else {
       for (cond in condition_vec) {
         run_id <- paste(celltype, cond, sep = "_")
         indir <- file.path(proj_dir, "outputs/pseudo_bulk/summary_statistic", mode, celltype, cond)
-        all_qtl_tab[[run_id]] <- load_eqtl_tab(indir, fdr = 0.1) %>%
-          # dplyr::filter(0.1 <= alpha_param, alpha_param <= 500, 0.1 <= beta_param, beta_param <= 500) %>%
+        all_qtl_tab[[run_id]] <- load_eqtl_tab.v2(indir, fdr = 0.1) %>%
+          dplyr::filter(0.1 <= alpha_param, alpha_param <= 500, 0.1 <= beta_param, beta_param <= 500) %>%
           dplyr::select(snp_id, snp_chromosome, snp_position, maf, feature_id, p_value, beta, beta_se, global_corrected_pValue) %>%
           dplyr::mutate(celltype = celltype, condition = cond, QTL = paste0(snp_id, "-", feature_id)) %>%
-          dplyr::filter(QTL %in% top_qtl_tab)
+          dplyr::filter(QTL %in% top_qtl_vec)
       }
     }
   }
@@ -115,4 +146,4 @@ Reduce(rbind, all_qtl_tab) %>%
   ) %>%
   dplyr::arrange(snp_chromosome, snp_position, feature_id) %>%
   as.data.frame() %>%
-  data.table::fwrite(file.path(proj_dir, "outputs/pseudo_bulk/overview/filtered.all_top_qtl.FDR0.1.v2.csv"))
+  data.table::fwrite(file.path(proj_dir, "outputs/pseudo_bulk/overview/filtered.all_top_qtl.FDR0.05.v2.csv"))

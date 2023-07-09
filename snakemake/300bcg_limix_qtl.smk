@@ -136,6 +136,8 @@ else:
 
 
 # Parameters
+# numberOfPermutations = '10000'
+# minorAlleleFrequency = '0.05'
 numberOfPermutations = '1000'
 minorAlleleFrequency = '0.1'
 relatednessScore = '0.8'

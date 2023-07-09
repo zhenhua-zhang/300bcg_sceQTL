@@ -161,8 +161,8 @@ def fetch_read_counts(snpid, region_tab, flank_len=200, threads=4, discard_zero=
     return readcounts
 
 
-# def plot_rc(rcpool, figheight=5, figwidth=6, cond_order=["Severe", "Mild", "Post"]):
-def plot_rc(rcpool, figheight=5, figwidth=6, cond_order=["Convalescent", "Hospitalized"]):
+# def plot_rc(rcpool, figheight=5, figwidth=6, cond_order=["Convalescent", "Hospitalized"]):
+def plot_rc(rcpool, figheight=5, figwidth=6, cond_order=["Post", "Mild", "Severe"]):
     """Plot ASoC read counts."""
     celltype, condition = check_rcpool(rcpool)
     condition.sort(key=lambda x: cond_order.index(x))
