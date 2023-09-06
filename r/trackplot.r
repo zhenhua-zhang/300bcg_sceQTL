@@ -5,7 +5,7 @@
 # Updated: Jul 07, 2023
 
 #' Code to generate a track plot by
-options(stringsAsFactors = FALSE, data.table.verbose = FALSE, Gviz.ucscUrl =  "http://genome-euro.ucsc.edu/cgi-bin/")
+options(stringsAsFactors = FALSE, datatable.showProgress = FALSE, data.table.verbose = FALSE, Gviz.ucscUrl =  "http://genome-euro.ucsc.edu/cgi-bin/")
 suppressPackageStartupMessages({
   library(Gviz)
   library(biomaRt)
@@ -34,13 +34,16 @@ marker_snp <- "rs11080327"; marker_feature <- "SLFN5"
 marker_snp <- "rs883416"; marker_feature <- "SLFN5"; marker_snp_pos <- 35243422
 
 sumstat_query <- tibble::tribble(
-  ~feature_id, ~model, ~cell_type, ~condition, ~gwas_id, ~start, ~end,
-  # "CD55", "normal", "Monocytes", "", "", 0, 0,
-  # "CD55", "normal", "B", "", "", 0, 0,
-  # "SLFN5", "interaction", "CD8T", "T0_LPS.vs.T0_RPMI", "", 0, 0,
-  "SLFN5", "interaction", "CD4T", "T0_LPS.vs.T0_RPMI", "", 0, 0,
-  # "SLFN5", "interaction", "CD4T", "T0_LPS.vs.T0_RPMI", "COVID19PlosOne", 0, 0,
-  "SLFN5", "interaction", "CD4T", "T0_LPS.vs.T0_RPMI", "COVID19Release7", 0, 0
+  ~feature_id, ~model, ~cell_type, ~condition, ~gwas_id, ~start, ~end, ~skip_atac, ~atac_order,
+  "CD55", "normal", "Monocytes", "", "", 0, 0, FALSE, 2,
+  # "CD55", "normal", "CD4T", "", "", 0, 0, FALSE, 1,
+  # "CD55", "normal", "CD8T", "", "", 0, 0, FALSE, 3,
+  # "CD55", "normal", "NK", "", "", 0, 0, FALSE, 4,
+  "CD55", "normal", "B", "", "", 0, 0, FALSE, 5,
+  # "SLFN5", "interaction", "CD8T", "T0_LPS.vs.T0_RPMI", "", 0, 0, FALSE,
+  # "SLFN5", "interaction", "CD4T", "T0_LPS.vs.T0_RPMI", "", 0, 0, FALSE,
+  # "SLFN5", "interaction", "CD4T", "T0_LPS.vs.T0_RPMI", "COVID19PlosOne", 0, 0, FALSE,
+  # "SLFN5", "interaction", "CD4T", "T0_LPS.vs.T0_RPMI", "COVID19Release7", 0, 0, FALSE,
 ) %>%
 dplyr::filter(feature_id == marker_feature)
 
@@ -78,7 +81,7 @@ sumstat <- apply(sumstat_query, 1, function(vec, .base_dir, .marker_snp) {
   }
   tab <- dplyr::mutate(tab, chrom = stringr::str_remove_all(chrom, "chr"))
 
-  ylim_vec <- c(0, 7)
+  ylim_vec <- c(0, 9)
   if (.marker_snp %in% tab$snp_id)
     marker_snp_track <- dplyr::filter(tab, snp_id == .marker_snp) %>%
       dplyr::select(-c(feature_id, snp_id)) %>%
@@ -143,72 +146,72 @@ displayPars(genehancer_tk) <- list(
 
 # ATAC-seq annotation track
 celltype_vec <- sumstat_query$cell_type %>% unique()
-
 atacseq_tk <- sumstat_query %>%
-  dplyr::filter(gwas_id == "") %>%
+  dplyr::filter(gwas_id == "", !skip_atac) %>%
+  dplyr::arrange(atac_order) %>%
   apply(1, function(vec, .sumstat_tabs, .marker_snp, .plot_chrom, .plot_start, .plot_end) {
-  per_feature_id <- vec["feature_id"]
-  per_cell_type <- vec["cell_type"]
-  per_condition <- vec["condition"]
-  per_gwas_id <- vec["gwas_id"]
+    per_feature_id <- vec["feature_id"]
+    per_cell_type <- vec["cell_type"]
+    per_condition <- vec["condition"]
+    per_gwas_id <- vec["gwas_id"]
 
-  per_model <- vec["model"]
-  if (per_cell_type == "Monocytes") {
-    anno_title <- "Mono."
-    anno_path <- file.path(proj_dir, "inputs/atac_seq/peaks_filtered_monocyte.csv.gz")
-  } else if (per_cell_type == "NK") {
-    anno_title <- "NK"
-    anno_path <- file.path(proj_dir, "inputs/atac_seq/peaks_filtered_nkcell.csv.gz")
-  } else if (per_cell_type == "CD8T") {
-    anno_title <- "CD8T"
-    anno_path <- file.path(proj_dir, "inputs/atac_seq/peaks_filtered_cd8t.csv.gz")
-  } else {
-    anno_title <- "PBMC"
-    anno_path <- file.path(proj_dir, "inputs/atac_seq/peaks_filtered.csv.gz")
-  }
+    per_model <- vec["model"]
+    if (per_cell_type == "Monocytes") {
+      anno_title <- "Mono."
+      anno_path <- file.path(proj_dir, "inputs/atac_seq/peaks_filtered_monocyte.csv.gz")
+    } else if (per_cell_type == "NK") {
+      anno_title <- "NK"
+      anno_path <- file.path(proj_dir, "inputs/atac_seq/peaks_filtered_nkcell.csv.gz")
+    } else if (per_cell_type == "CD8T") {
+      anno_title <- "CD8T"
+      anno_path <- file.path(proj_dir, "inputs/atac_seq/peaks_filtered_cd8t.csv.gz")
+    } else {
+      anno_title <- "PBMC"
+      anno_path <- file.path(proj_dir, "inputs/atac_seq/peaks_filtered.csv.gz")
+    }
 
-  anno_tab <- data.table::fread(anno_path)
-  anno_range <- anno_tab %>%
-    dplyr::mutate(chr = as.integer(stringr::str_remove_all(chr, "chr"))) %>%
-    dplyr::filter(chr == .plot_chrom, (.plot_start <= start & start <= .plot_end) | (.plot_start <= end & end <= .plot_end)) %>%
-    makeGRangesFromDataFrame(TRUE, seqnames.field = "chr", start.field = "start", end.field = "end")
+    anno_range <- data.table::fread(anno_path) %>%
+      dplyr::mutate(chr = as.integer(stringr::str_remove_all(chr, "chr"))) %>%
+      dplyr::filter(chr == .plot_chrom, (.plot_start <= start & start <= .plot_end) | (.plot_start <= end & end <= .plot_end)) %>%
+      makeGRangesFromDataFrame(TRUE, seqnames.field = "chr", start.field = "start", end.field = "end")
 
   # Annotations containing a SNP used in the association analysis.
-  sumstat_idx <- paste(per_feature_id, per_model, per_cell_type, per_condition, per_gwas_id, sep = "|")
-  eqtl_range <- .sumstat_tabs[[sumstat_idx]] %>%
-    dplyr::select(-c(feature_id, snp_id)) %>%
-    dplyr::filter(log10_pval >= -log10(0.05)) %>%
-    dplyr::mutate(chrom = as.integer(stringr::str_remove_all(chrom, "chr"))) %>%
-    makeGRangesFromDataFrame(seqnames.field = "chrom", start.field = "pos", end.field = "pos")
-  anno_eqtl_range <- anno_range[overlapsAny(anno_range, eqtl_range, maxgap = 100), ]
-  anno_eqtl_tk <- AnnotationTrack(
-    start = start(anno_eqtl_range), width = width(anno_eqtl_range), chromosome = .plot_chrom,
-    strand = strand(anno_eqtl_range), id = anno_eqtl_range$gene_name, genome = genome, name = anno_title,
-    col.title = "black", background.title = "gray95", background.panel = "white", cex.title = 1,
-    cex.axis = 0.7, stacking = "dense"
-  )
-
-  # Annotation containing the marker SNP by .marker_snp
-  marker_range <- .sumstat_tabs[[sumstat_idx]] %>%
-    dplyr::filter(snp_id == .marker_snp) %>%
-    dplyr::select(-c(feature_id, snp_id)) %>%
-    dplyr::mutate(chrom = as.integer(stringr::str_remove_all(chrom, "chr"))) %>%
-    makeGRangesFromDataFrame(seqnames.field = "chrom", start.field = "pos", end.field = "pos")
-  marker_range <- anno_range[overlapsAny(anno_range, marker_range, maxgap = 100), ]
-  if (length(marker_range) > 0) {
-    cat("Mark SNP overlaps ATAC-seq peaks!\n")
-    anno_marker_tk <- AnnotationTrack(
-      start = start(marker_range), width = width(marker_range), chromosome = .plot_chrom,
-      strand = strand(marker_range), genome = genome, name = anno_title, col = "red", fill = "red",
+    sumstat_idx <- paste(per_feature_id, per_model, per_cell_type, per_condition, per_gwas_id, sep = "|")
+    eqtl_range <- .sumstat_tabs[[sumstat_idx]] %>%
+      dplyr::select(-c(feature_id, snp_id)) %>%
+      dplyr::filter(log10_pval >= -log10(0.05)) %>%
+      dplyr::mutate(chrom = as.integer(stringr::str_remove_all(chrom, "chr"))) %>%
+      makeGRangesFromDataFrame(seqnames.field = "chrom", start.field = "pos", end.field = "pos")
+    anno_eqtl_range <- anno_range[overlapsAny(anno_range, eqtl_range, maxgap = 100), ]
+    anno_eqtl_tk <- AnnotationTrack(
+      start = start(anno_eqtl_range), width = width(anno_eqtl_range), chromosome = .plot_chrom,
+      strand = strand(anno_eqtl_range), id = anno_eqtl_range$gene_name, genome = genome, name = anno_title,
       col.title = "black", background.title = "gray95", background.panel = "white", cex.title = 1,
       cex.axis = 0.7, stacking = "dense"
     )
 
-    OverlayTrack(trackList = list(anno_eqtl_tk, anno_marker_tk))
-  } else {
-    anno_eqtl_tk
-  }
+  # Annotation containing the marker SNP by .marker_snp
+    marker_range <- .sumstat_tabs[[sumstat_idx]] %>%
+      dplyr::filter(snp_id == .marker_snp) %>%
+      dplyr::select(-c(feature_id, snp_id)) %>%
+      dplyr::mutate(chrom = as.integer(stringr::str_remove_all(chrom, "chr"))) %>%
+      makeGRangesFromDataFrame(seqnames.field = "chrom", start.field = "pos", end.field = "pos")
+    marker_range <- anno_range[overlapsAny(anno_range, marker_range, maxgap = 100), ]
+    if (length(marker_range) > 0) {
+      cat("Mark SNP overlaps ATAC-seq peaks!\n")
+      anno_marker_tk <- AnnotationTrack(
+        start = start(marker_range), width = width(marker_range), chromosome = .plot_chrom,
+        strand = strand(marker_range), genome = genome, name = anno_title, col = "red", fill = "red",
+        col.title = "black", background.title = "gray95", background.panel = "white", cex.title = 1,
+        cex.axis = 0.7, stacking = "dense"
+      )
+
+      OverlayTrack(trackList = list(anno_eqtl_tk, anno_marker_tk))
+    } else {
+      anno_eqtl_tk
+    }
 }, .sumstat_tabs = sumstat_tabs, .marker_snp = marker_snp, .plot_chrom = plot_chrom, .plot_start = plot_start, .plot_end = plot_end)
+
 
 # Feature structure track.
 ensembl <- useEnsembl(biomart = "genes", dataset = "hsapiens_gene_ensembl")
@@ -221,9 +224,9 @@ gene_pos_tk <- BiomartGeneRegionTrack(
 
 
 token <- "normal."
-token <- "interaction."
+# token <- "interaction."
 track_list <- c(ideogram_tk, genome_axis_tk, sumstat_tk, atacseq_tk, genehancer_tk, gene_pos_tk)
-track_height_list <- c(.7, 1, rep(3.25, length(sumstat_tk)), rep(1, length(atacseq_tk)), 3, 3.25)
+track_height_list <- c(.7, 1, rep(3.25, length(sumstat_tk)), rep(1.1, length(atacseq_tk)), 3, 3.25)
 save_plot_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL", paste0(token, marker_feature, "-", marker_snp, ".track_plot.eQTL_effect.pdf"))
 pdf(save_plot_to, width = 6, height = 9)
 plotTracks(track_list, sizes = track_height_list, from = plot_start + 300000, to = plot_end - 300000)

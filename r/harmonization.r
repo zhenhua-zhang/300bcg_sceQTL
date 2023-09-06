@@ -58,9 +58,9 @@ load_eqtl_tab <- function(dir, fdr = 0.05, fdr_col = "global_corrected_pValue", 
 
 
 #' Harmonize variants
-harmonize_vars <- function(eqtl, gwas, eqtl_pval_col = "p_value", eqtl_pval = 1, exposure_pval = 5e-6,
-                           clump = TRUE, clump_kb = 50, clump_r2 = 0.5, clump_bfile = NULL, do_proxy = FALSE,
-                           plink_bin = "plink", bcftools_bin = "bcftools", save_to = "./", override = FALSE) {
+harmonize_vars <- function(eqtl, gwas, eqtl_pval_col = "p_value", eqtl_pval = 1, clump = TRUE, clump_kb = 50, clump_r2 = 0.5,
+                           clump_bfile = NULL, do_proxy = FALSE, plink_bin = "plink", bcftools_bin = "bcftools",
+                           save_to = "./", override = FALSE) {
   # Set up bcftools and plink path
   gwasvcf::set_bcftools(bcftools_bin)
   gwasvcf::set_plink(plink_bin)
@@ -142,49 +142,49 @@ eur_1kg_geno <- file.path(proj_dir, "inputs/reference/genotypes/GRCh38/EUR")
 
 # Public GWAS list: run 1
 pub_gwas_list <- list(
-  # # Cancers
-  # "ieu-b-4965" = c("2021_ColorectalCancer_ieu-b-4965.vcf.gz", NA),
-  # "ieu-b-4809" = c("2021_ProstateCancer_ieu-b-4809.vcf.gz", NA),
-  # "ieu-b-4874" = c("2021_BladderCancer_ieu-b-4874.vcf.gz", NA),
-  # "ieu-a-1082" = c("2013_ThyroidCancer_ieu-a-1082.vcf.gz", NA),
-  # "ieu-b-4963" = c("2017_OvarianCancer_ieu-b-4963.vcf.gz", NA),
-  # "ieu-a-966" = c("2014_LungCancer_ieu-a-966.vcf.gz", NA),
+  # Cancers
+  "ieu-b-4965" = c("2021_ColorectalCancer_ieu-b-4965.vcf.gz", NA),
+  "ieu-b-4809" = c("2021_ProstateCancer_ieu-b-4809.vcf.gz", NA),
+  "ieu-b-4874" = c("2021_BladderCancer_ieu-b-4874.vcf.gz", NA),
+  "ieu-a-1082" = c("2013_ThyroidCancer_ieu-a-1082.vcf.gz", NA),
+  "ieu-b-4963" = c("2017_OvarianCancer_ieu-b-4963.vcf.gz", NA),
+  "ieu-a-966" = c("2014_LungCancer_ieu-a-966.vcf.gz", NA),
 
-  # # Autoimmune disease
-  # # "ebi-a-GCST010681" = c("2022_Type1Diabetes_ebi-a-GCST010681.vcf.gz", NA), No GWAS VCF available, TODO: format available SS into GWAS VCF format.
-  # "ukb-d-M13_RHEUMA" = c("2018_RheumatoidArthritis_ukb-d-M13_RHEUMA.vcf.gz", NA),
-  # "ieu-a-31" = c("2015_InflammatoryBowelDisease_ieu-a-31.vcf.gz", NA),
-  # "ukb-b-17670" = c("2019_MultipleSclerosis_ukb-b-17670.vcf.gz", NA),
-  # "ieu-a-996" = c("2014_AtopicDermatitis_ieu-a-996.vcf.gz", NA),
-  # "ieu-a-32" = c("2015_UlcerativeColitis_ieu-a-32.vcf.gz", NA),
-  # "ieu-a-30" = c("2015_CrohnsDisease_ieu-a-30.vcf.gz", NA),
-  # "ukb-a-100" = c("2017_Psoriasis_ukb-a-100.vcf.gz", NA),
+  # Autoimmune disease
+  # "ebi-a-GCST010681" = c("2022_Type1Diabetes_ebi-a-GCST010681.vcf.gz", NA), No GWAS VCF available, TODO: format available SS into GWAS VCF format.
+  "ukb-d-M13_RHEUMA" = c("2018_RheumatoidArthritis_ukb-d-M13_RHEUMA.vcf.gz", NA),
+  "ieu-a-31" = c("2015_InflammatoryBowelDisease_ieu-a-31.vcf.gz", NA),
+  "ukb-b-17670" = c("2019_MultipleSclerosis_ukb-b-17670.vcf.gz", NA),
+  "ieu-a-996" = c("2014_AtopicDermatitis_ieu-a-996.vcf.gz", NA),
+  "ieu-a-32" = c("2015_UlcerativeColitis_ieu-a-32.vcf.gz", NA),
+  "ieu-a-30" = c("2015_CrohnsDisease_ieu-a-30.vcf.gz", NA),
+  "ukb-a-100" = c("2017_Psoriasis_ukb-a-100.vcf.gz", NA),
 
-  # # Infectious disease
-  # "ebi-a-GCST010780" = c("2020_COVID19Release4_ebi-a-GCST010780.vcf.gz", NA),
-  # "HGI-A2-ALL-eur-leave23andme-20220403" = c("2022_COVID19Release7_HGI-A2-ALL-eur-leave23andme-20220403.vcf.gz", NA),
+  # Infectious disease
+  "ebi-a-GCST010780" = c("2020_COVID19Release4_ebi-a-GCST010780.vcf.gz", NA),
+  "HGI-A2-ALL-eur-leave23andme-20220403" = c("2022_COVID19Release7_HGI-A2-ALL-eur-leave23andme-20220403.vcf.gz", NA),
   "2023_COVID19PlosOne" = c("2023_COVID19PlosOne_Severity.vcf.gz", NA),
 
-  # # Brain disorders
-  # "ieu-b-5067" = c("2022_AlzheimerDiseases_ieu-b-5067.vcf.gz", NA),
-  # "ieu-b-42" = c("2014_Schizophrenia_ieu-b-42.vcf.gz", NA),
+  # Brain disorders
+  "ieu-b-5067" = c("2022_AlzheimerDiseases_ieu-b-5067.vcf.gz", NA),
+  "ieu-b-42" = c("2014_Schizophrenia_ieu-b-42.vcf.gz", NA),
 
-  # # Other genetic-related disease
-  # "ebi-a-GCST006867" = c("2018_Type2Diabetes_ebi-a-GCST006867.vcf.gz", NA),
-  # "ukb-d-J10_ASTHMA" = c("2018_AsthmaDT1_ukb-d-J10_ASTHMA.vcf.gz", NA),
-  # "ieu-a-7" = c("2013_CoronaryHeartDisease_ieu-a-7.vcf.gz", NA),
-  # "ukb-a-107" = c("2017_GoutDisease_ukb-a-107.vcf.gz", NA),
-  # "ukb-a-255" = c("2017_AsthmaDT2_ukb-a-255.vcf.gz", NA),
-  # "ieu-b-90" = c("2013_ObesityClass1_ieu-a-90.vcf.gz", NA),
-  # "ieu-b-91" = c("2013_ObesityClass2_ieu-a-91.vcf.gz", NA),
-  # "ieu-b-92" = c("2013_ObesityClass3_ieu-a-92.vcf.gz", NA),
+  # Other genetic-related disease
+  "ebi-a-GCST006867" = c("2018_Type2Diabetes_ebi-a-GCST006867.vcf.gz", NA),
+  "ukb-d-J10_ASTHMA" = c("2018_AsthmaDT1_ukb-d-J10_ASTHMA.vcf.gz", NA),
+  "ieu-a-7" = c("2013_CoronaryHeartDisease_ieu-a-7.vcf.gz", NA),
+  "ukb-a-107" = c("2017_GoutDisease_ukb-a-107.vcf.gz", NA),
+  "ukb-a-255" = c("2017_AsthmaDT2_ukb-a-255.vcf.gz", NA),
+  "ieu-b-90" = c("2013_ObesityClass1_ieu-a-90.vcf.gz", NA),
+  "ieu-b-91" = c("2013_ObesityClass2_ieu-a-91.vcf.gz", NA),
+  "ieu-b-92" = c("2013_ObesityClass3_ieu-a-92.vcf.gz", NA),
 
-  # # Others traits
-  # "ieu-b-109" = c("2020_HDLCholesterol_ieu-b-109.vcf.gz", 403943),
-  # "ieu-b-110" = c("2020_LDLCholesterol_ieu-b-110.vcf.gz", 440546),
-  # "ieu-b-111" = c("2020_Triglycerides_ieu-b-111.vcf.gz", 441016),
-  # "ieu-b-40" = c("2018_BodyMassIndex_ieu-b-40.vcf.gz", NA),
-  # "ieu-a-89" = c("2014_Height_ieu-a-89.vcf.gz", NA)
+  # Others traits
+  "ieu-b-109" = c("2020_HDLCholesterol_ieu-b-109.vcf.gz", 403943),
+  "ieu-b-110" = c("2020_LDLCholesterol_ieu-b-110.vcf.gz", 440546),
+  "ieu-b-111" = c("2020_Triglycerides_ieu-b-111.vcf.gz", 441016),
+  "ieu-b-40" = c("2018_BodyMassIndex_ieu-b-40.vcf.gz", NA),
+  "ieu-a-89" = c("2014_Height_ieu-a-89.vcf.gz", NA)
 ) %>%
   lapply(function(e) c(file.path(proj_dir, "inputs/public_gwas", e[1]), e[2]))
 
@@ -218,7 +218,7 @@ for (mode in mode_vec) {
 
       pr_save_to <- file.path(save_to, pr_run_id)
       if (!dir.exists(pr_save_to)) dir.create(pr_save_to, recursive = TRUE)
-      harmonize_vars(.tmp_tab, pub_gwas_list, exposure_pval = 5e-5, clump_bfile = eur_1kg_geno, plink_bin = "plink-quiet", save_to = pr_save_to)
+      harmonize_vars(.tmp_tab, pub_gwas_list, clump_bfile = eur_1kg_geno, plink_bin = "plink-quiet", save_to = pr_save_to)
       NULL
     })
   }

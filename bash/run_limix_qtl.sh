@@ -124,7 +124,8 @@ smfile=$proj_dir/scripts/snakemake/300bcg_limix_qtl.smk
 smconf=$proj_dir/scripts/snakemake/configs
 # for model in normal interaction per_condition; do
 for model in per_condition; do
-  for per_celltype in Monocytes CD4T CD8T NK B; do
+  # for per_celltype in Monocytes CD4T CD8T NK B; do
+  for per_celltype in CD8T CD4T NK; do
     out_dir=$proj_dir/outputs/$mode/summary_statistic/$model/$per_celltype
 
     # Save the log files.
@@ -166,7 +167,9 @@ for model in per_condition; do
         # Run
         snakemake -j $njobs -d $out_dir -s $smfile --profile $smconf \
           -C run_mode=$mode cell_type=$per_celltype condition=$per_cond eval_model=$model inter_term=. use_peer=true
+        break
       done
     fi
   done
+  break
 done

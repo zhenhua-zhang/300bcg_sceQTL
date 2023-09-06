@@ -2,39 +2,52 @@
 # Author: Zhenhua Zhang
 # E-mail: zhenhua.zhang217@gmail.com, zhenhua.zhang3@helmholtz-hzi.de
 # Created: 2022 Oct 12
-# Updated: 2023 May 15
+# Updated: Sep 05, 2023
 
-options(stringsAsFactors = FALSE, data.table.verbose = FALSE)
+options(stringsAsFactors = FALSE, data.table.verbose = FALSE, datatable.showProgress = FALSE, digits = 2)
 suppressPackageStartupMessages({
-  # Functional annotation, enrichment, background databases, etc.
-  library(msigdbr)
-  library(ReactomePA) # reactome.db_1.81.0
-  library(clusterProfiler)
-  library(DOSE)
-  library(enrichplot)
-  library(ComplexHeatmap)
-  library(circlize)
+  # Single-cell ATAC-seq
+  library(ArchR)
+
+  # Single-cell RNA-seq
   library(SeuratObject)
   library(Seurat)
   library(Matrix)
-  # library(ArchR)
-  library(lme4)
-  library(lmerTest)
+
+  # Trackplot
+  library(Gviz)
   library(GenomicRanges)
 
-  # Misc, color, data manipulation, etc.
-  library(RColorBrewer)
+  # Correlation analysis
+  library(lme4)
+  library(lmerTest)
+
+  # Functional enrichment
+  library(DOSE)
+  library(msigdbr)
+  library(ReactomePA) # reactome.db_1.81.0
+  library(clusterProfiler)
+
+  # Data manipulation
   library(magrittr)
   library(tidyverse)
   library(data.table)
+
+  # Plotting
+  library(enrichplot)
+  library(colorRamp2)
+  library(ComplexHeatmap)
+  library(RColorBrewer)
   library(patchwork)
+  # library(circlize)
   library(ggbreak)
   library(ggforce)
   library(ggrepel)
   library(ggpubr)
   library(ggh4x)
   library(ggsci)
-  library(gtools)
+  library(webr) # To plot PieDonut chart
+  library(ggbeeswarm)
 })
 
 
@@ -47,7 +60,7 @@ stim_vec <- c("RPMI", "LPS")
 mode_vec <- c("normal", "interaction")
 celltype_vec <- c("Monocytes", "CD4T", "CD8T", "NK", "B")
 condition_vec <- c("T0_LPS.vs.T0_RPMI", "T3m_LPS.vs.T3m_RPMI", "T3m_RPMI.vs.T0_RPMI") #, "T3m_LPS.vs.T0_RPMI")
-col_pattern_vec <- c("normal" = "_Common", "interaction" = ".vs.")
+col_pattern_vec <- c("normal" = "Common", "interaction" = ".vs.")
 effect_vec <- c("LPS eff. (T0)", "LPS eff. (T3m)", "BCG eff.")
 names(effect_vec) <- condition_vec
 
@@ -56,35 +69,28 @@ names(effect_vec) <- condition_vec
 ## Parameters
 #
 fdr_max <- 0.05
-min_isize <- 10
 
-
-#
-## Plot single-cell UMAP, cell type markers, and cell proportion
-#
 # Define the number of colors you want
 nb_cols <- 10
 mycolors <- colorRampPalette(brewer.pal(8, "Blues"))(nb_cols)
 
+#
+## Load single-cell RNA-seq results
+#
 so_path <- file.path(proj_dir, "inputs/sc_rnaseq/bcg4-0712.rds")
 pbmc <- readRDS(so_path)
-
-pbmc <- pbmc[, (!pbmc@meta.data$clusters1 %in% c("HSP(T)"))]
-
+pbmc <- pbmc[, (!pbmc@meta.data$clusters1 %in% c("HSP(T)"))] # Removing HSP(T) cells
 new_cell_lvl <- c("Monocytes", "CD4+ T", "CD8+ T", "NK", "B", "Platelet", "mDC", "pDC", "Undefined")
 pbmc@meta.data$clusters1 <- factor(pbmc@meta.data$clusters1, levels = new_cell_lvl)
 pbmc@meta.data$ts <- factor(pbmc@meta.data$ts, levels = c("T0_RPMI", "T0_LPS", "T3m_RPMI", "T3m_LPS"))
 Idents(pbmc) <- "clusters1"
+
+#
+## Plot single-cell UMAP
+#
 DefaultAssay(pbmc) <- "RNA"
-
-
-#
-## Draw the UMAP
-#
 g_umap <- DimPlot(pbmc, reduction = "umap") + NoAxes(keep.text = TRUE)
 ggsave(file.path(proj_dir, "outputs/pseudo_bulk/overview/sc_rnaseq_umap.pdf"), g_umap, width = 7, height = 6)
-
-# Figure Sx
 g_umap_pcond <- DimPlot(pbmc, reduction = "umap", split.by = "ts", ncol = 2) + NoAxes(keep.text = TRUE)
 ggsave(file.path(proj_dir, "outputs/pseudo_bulk/overview/sc_rnaseq_umap.per_condition.pdf"), g_umap_pcond, width = 8, height = 8)
 
@@ -106,16 +112,13 @@ save_to <- file.path(proj_dir, "outputs/pseudo_bulk/overview/sc.celltype_markers
 ggsave(save_to, g_ct_marker)
 
 DefaultAssay(pbmc) <- "integrated"
+tar_celltype <- c("Monocytes", "CD4+ T", "CD8+ T", "NK", "B", "mDC", "pDC")
 save_to <- file.path(proj_dir, "outputs/pseudo_bulk/overview/sc.celltype_markers.dotplot.horizontal.pdf")
-g_ct_marker <- DotPlot(pbmc, assay = "RNA", features = unique(ct_markers), cols = "RdBu",
-                       idents = c("Monocytes", "CD4+ T", "CD8+ T", "NK", "B", "mDC", "pDC")) +
-                RotatedAxis() + coord_flip()
+g_ct_marker <- DotPlot(pbmc, assay = "RNA", features = unique(ct_markers), cols = "RdBu", idents = tar_celltype) + RotatedAxis() + coord_flip()
 ggsave(save_to, g_ct_marker, width = 12, height = 4)
 
 save_to <- file.path(proj_dir, "outputs/pseudo_bulk/overview/sc.celltype_markers.dotplot.vertical.pdf")
-g_ct_marker <- DotPlot(pbmc, assay = "RNA", features = unique(ct_markers), cols = "RdBu",
-                       idents = c("Monocytes", "CD4+ T", "CD8+ T", "NK", "B", "mDC", "pDC")) +
-                RotatedAxis() + coord_flip()
+g_ct_marker <- DotPlot(pbmc, assay = "RNA", features = unique(ct_markers), cols = "RdBu", idents = tar_celltype) + RotatedAxis() + coord_flip()
 ggsave(save_to, g_ct_marker, width = 6, height = 10)
 
 
@@ -125,18 +128,11 @@ ggsave(save_to, g_ct_marker, width = 6, height = 10)
 cpp_tab <- pbmc@meta.data %>%
   dplyr::filter(status == "singlet") %>%
   dplyr::group_by(time, stim, ids) %>%
-  dplyr::summarise(cpp = {
-    n_pcond <- dplyr::n()
-    n_pcell_pcond <- dplyr::cur_data()$clusters1 %>% table()
-    data.frame(n_pcell_pcond / n_pcond)
-  }) %>%
+  dplyr::summarise(cpp = { data.frame(table(dplyr::cur_data()$clusters1) / dplyr::n()) }) %>%
   as.data.table() %>%
   dplyr::rename("cell_type" = "cpp..", "cell_proportion" = "cpp.Freq") %>%
   dplyr::filter(!cell_type %in% c("Undefined", "Platelet")) %>%
-  dplyr::mutate(
-    stim = factor(stim, levels = c("RPMI", "LPS")),
-    cell_type = factor(cell_type, levels = c("CD4+ T", "CD8+ T", "Monocytes", "NK", "B", "pDC", "mDC"))
-  )
+  dplyr::mutate(stim = factor(stim, levels = c("RPMI", "LPS")), cell_type = factor(cell_type, levels = c("CD4+ T", "CD8+ T", "Monocytes", "NK", "B", "pDC", "mDC")))
 
 g_cpp <- ggboxplot(
   cpp_tab, x = "time", y = "cell_proportion", fill = "stim", color = "black", size = 0.5,
@@ -157,28 +153,88 @@ dev.off()
 
 
 #
+## Overiview of the cohort
+#
+meta_info <- pbmc@meta.data %>% dplyr::select(age, gender, ids) %>% dplyr::distinct() %>% as.data.table()
+
+# Gender pie plot
+p_gender <- meta_info %>%
+  dplyr::select(ids, gender) %>%
+  dplyr::group_by(gender) %>%
+  dplyr::summarise(n = n()) %>%
+  dplyr::ungroup() %>%
+  dplyr::arrange(n) %>%
+  dplyr::mutate(pos = cumsum(n) - 0.5 * n) %>%
+  ggplot() +
+  geom_bar(aes(x = 2, y = n, fill = gender), stat = "identity", color = "white") +
+  coord_polar("y", start = 0) +
+  geom_text(aes(x = 2, y = pos, label = n), color = "white") +
+  scale_fill_npg() +
+  labs(fill = "Gender") +
+  xlim(0.5, 2.5) +
+  theme_void() +
+  theme(legend.position = "none")
+
+# Age distribution
+p_age <- meta_info %>%
+  dplyr::select(ids, age, gender) %>%
+  dplyr::mutate(gender = dplyr::if_else(gender == "f", "Female", "Male")) %>%
+  ggplot() +
+  geom_violin(aes(x = gender, y = age, fill = gender), draw_quantiles = c(0.25, 0.5, 0.75)) +
+  geom_point(aes(x = gender, y = age), position = position_jitter(width = 0.2)) +
+  scale_fill_npg() +
+  labs(x = NULL, y = "Age", fill = "Gender") +
+  theme_classic()
+
+p_demo <- p_gender + p_age
+save_to <- file.path(proj_dir, "outputs/pseudo_bulk/overview/cohort_demographical_plot.pdf")
+ggsave(save_to, p_demo, width = 6, height = 3)
+
+
+#
+## Number of cells per condition
+#
+save_to <- file.path(proj_dir, "outputs/pseudo_bulk/overview/cell_count_plot.pdf")
+tar_clusters <- c("Monocytes", "CD4+ T", "CD8+ T", "NK", "B")
+pdf(save_to, width = 6, height = 6)
+pbmc@meta.data %>%
+  dplyr::filter(clusters1 != "HSP(T)") %>%
+  dplyr::mutate(clusters1 = as.character(clusters1), clusters1 = dplyr::if_else(clusters1 %in% tar_clusters, clusters1, "Others")) %>%
+  dplyr::group_by(ts, clusters1) %>%
+  dplyr::summarise(n = n()) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(clusters1 = forcats::fct_reorder(clusters1, n)) %>%
+  PieDonut(aes(pies = ts, donuts = clusters1, count = n), r0 = 0.2, r1 = 0.7, ratioByGroup = TRUE, showPieName = FALSE, showRatioThreshold = 0.02)
+dev.off()
+
+
+eqtl_tab <- fread(file.path(proj_dir, "outputs/pseudo_bulk/overview/filtered.eGene_eVariants.FDR0.05.csv"))
+
+#
 ## Plot number of eQTLs
 #
 col_dict <- c("B" = "#E64B35", "CD4T" = "#4DBBD5", "CD8T" = "#00A087", "NK" = "#3C5488", "Monocytes" = "#F39B7F")
-plot_size <- list("normal" = c("width" = 7, "height" = 3), "interaction" = c("width" = 15, "height" = 4))
+plot_size <- list("normal" = c("width" = 7, "height" = 3), "interaction" = c("width" = 12, "height" = 4))
 for (mode in mode_vec) {
+  min_isize <- ifelse(mode == "normal", 5, 20)
   run_pattern <- col_pattern_vec[mode] %>% as.vector()
   genesets <- eqtl_tab %>%
-    dplyr::select(c(feature_id, snp_id, dplyr::contains(run_pattern) & dplyr::contains("global_corrected_pValue"))) %>%
-    tidyr::pivot_longer(cols = dplyr::contains("global_"), names_to = "Celltype", values_to = "global_corrected_pValue") %>%
-    dplyr::filter(global_corrected_pValue < fdr_max) %>%
-    dplyr::mutate(Celltype = stringr::str_remove_all(Celltype, "global_corrected_pValue_|_Common")) %>%
-    dplyr::group_by(Celltype) %>%
+    dplyr::filter(stringr::str_detect(condition, run_pattern)) %>%
+    dplyr::filter(q_value < fdr_max & !is.na(q_value)) %>%
+    dplyr::group_by(celltype, condition) %>%
     dplyr::summarize(GeneSets = {
       geneset <- list(unique(feature_id))
-      names(geneset) <- cur_group()[[1]]
+      if (mode == "normal")
+        names(geneset) <- cur_group()$celltype
+      else
+        names(geneset) <- cur_group() %>% unlist() %>% paste0(collapse = "-")
       geneset
     })
 
   mat <- make_comb_mat(genesets$GeneSets)
   mat <- mat[comb_size(mat) >= min_isize]
 
-  row_annotations <- stringr::str_split(ComplexHeatmap::set_name(mat), pattern = "_|\\.", n = 2, simplify = TRUE)
+  row_annotations <- stringr::str_split(ComplexHeatmap::set_name(mat), pattern = "-|\\.", n = 2, simplify = TRUE)
 
   celltypes <- row_annotations[, 1]
   celltypes_col <- col_dict[celltypes]
@@ -189,7 +245,8 @@ for (mode in mode_vec) {
   pw <- plot_size[[mode]]["width"]
   ph <- plot_size[[mode]]["height"]
 
-  pdf(paste0(token, ".", mode, ".eGene_number_upset_FDR", fdr_max, ".pdf"), width = pw, height = ph)
+  save_to <- file.path(proj_dir, "outputs/pseudo_bulk/overview", paste0(mode, ".eGene_number.FDR", fdr_max, ".upset_plot.pdf"))
+  pdf(save_to, width = pw, height = ph)
   us <- UpSet(mat,
     comb_col = comb_col_vec,
     comb_order = order(comb_size(mat)),
@@ -212,7 +269,7 @@ cat("check mashr.r for more details\n")
 
 
 #
-## Enrichment analysis
+## Enrichment analysis. TODO: Create a supplementary table
 #
 for (per_celltype in celltype_vec) {
   pval_col <- paste0("global_corrected_pValue_", per_celltype, "_Common")
@@ -223,9 +280,7 @@ for (per_celltype in celltype_vec) {
     tibble::deframe() %>%
     abs() %>%
     sort(decreasing = TRUE) %>%
-    (function(vec) {
-      clusterProfiler::bitr(names(vec), fromType = "SYMBOL", toType = "ENTREZID", OrgDb = "org.Hs.eg.db") %>% dplyr::mutate(Beta = vec[SYMBOL])
-    }) %>%
+    (function(vec) {clusterProfiler::bitr(names(vec), fromType = "SYMBOL", toType = "ENTREZID", OrgDb = "org.Hs.eg.db") %>% dplyr::mutate(Beta = vec[SYMBOL])}) %>%
     dplyr::filter(!stringr::str_starts(SYMBOL, "HLA-"))
 
   # GSEA
@@ -255,25 +310,15 @@ for (per_celltype in celltype_vec) {
   cat("Over representation analysis for", per_celltype, "...\n")
   list(
     enrichGO(gene_info$ENTREZID, ont = "BP", pvalueCutoff = 1, readable = TRUE, OrgDb = "org.Hs.eg.db") %>%
-      (function(res) {
-        res@result %>% dplyr::mutate(Celltype = per_celltype, Category = "GO")
-      }),
+      (function(res) { res@result %>% dplyr::mutate(Celltype = per_celltype, Category = "GO") }),
     enrichPathway(gene_info$ENTREZID, pvalueCutoff = 1, readable = TRUE) %>%
-      (function(res) {
-        res@result %>% dplyr::mutate(Celltype = per_celltype, Category = "ReactomePathway")
-      }),
+      (function(res) { res@result %>% dplyr::mutate(Celltype = per_celltype, Category = "ReactomePathway") }),
     enrichKEGG(gene_info$ENTREZID, pvalueCutoff = 1, organism = "hsa") %>%
-      (function(res) {
-        res@result %>% dplyr::mutate(Celltype = per_celltype, Category = "KEGG")
-      }),
+      (function(res) { res@result %>% dplyr::mutate(Celltype = per_celltype, Category = "KEGG") }),
     enrichWP(gene_info$ENTREZID, pvalueCutoff = 1, organism = "Homo sapiens") %>%
-      (function(res) {
-        res@result %>% dplyr::mutate(Celltype = per_celltype, Category = "WikiPathway")
-      }),
+      (function(res) { res@result %>% dplyr::mutate(Celltype = per_celltype, Category = "WikiPathway") }),
     enrichDO(gene_info$ENTREZID, pvalueCutoff = 1, readable = TRUE) %>%
-      (function(res) {
-        res@result %>% dplyr::mutate(Celltype = per_celltype, Category = "Disease")
-      })
+      (function(res) { res@result %>% dplyr::mutate(Celltype = per_celltype, Category = "Disease") })
   ) %>%
     Reduce(rbind, .) %>%
     data.table::fwrite(paste0(per_celltype, "_enrichment.csv"))
@@ -282,10 +327,7 @@ for (per_celltype in celltype_vec) {
 enr_tab <- paste0(celltype_vec, "_enrichment.csv") %>%
   lapply(function(p) data.table::fread(p)) %>%
   Reduce(rbind, .) %>%
-  dplyr::mutate(
-    Log2OddRatio = purrr::map2(GeneRatio, BgRatio, ~ log2(eval(parse(text = .x)) / eval(parse(text = .y)))),
-    Log2OddRatio = unlist(Log2OddRatio)
-  )
+  dplyr::mutate(Log2OddRatio = purrr::map2(GeneRatio, BgRatio, ~ log2(eval(parse(text = .x)) / eval(parse(text = .y)))), Log2OddRatio = unlist(Log2OddRatio))
 
 col_fun_prop <- colorRamp2(c(min(abs(enr_tab$Log2OddRatio)), max(abs(enr_tab$Log2OddRatio))), c("gray95", "#00AFBB"))
 for (pvalmax in c(1e-3, 5e-3, 1e-2, 5e-2, 1e-1)) {
@@ -301,16 +343,8 @@ for (pvalmax in c(1e-3, 5e-3, 1e-2, 5e-2, 1e-1)) {
     # for (pcat in c("WikiPathway", "Disease", "GO")) {
     hm_plot_list[[pcat]] <- hm_tab %>%
       dplyr::filter(Category == pcat) %>%
-      (function(tab) {
-        mat <- dplyr::select(tab, -c(ID, Description, Category)) %>% as.matrix() %>% t()
-        # rownames(mat) <- tab$Description
-
-        mat
-      }) %>%
-      Heatmap(
-        name = pcat, column_title = pcat, col = col_fun_prop, show_heatmap_legend = FALSE,
-        row_names_max_width = max_text_width(rownames(.), gp = gpar(fontsize = 7))
-      )
+      (function(tab) {dplyr::select(tab, -c(ID, Description, Category)) %>% as.matrix() %>% t()}) %>%
+      Heatmap(name = pcat, column_title = pcat, col = col_fun_prop, show_heatmap_legend = FALSE, row_names_max_width = max_text_width(rownames(.), gp = gpar(fontsize = 7)))
   }
 
   pdf(paste0("enrichment_heatmap_pval", pvalmax, ".pdf"), width = 10, height = 2.5)
@@ -327,7 +361,7 @@ for (pvalmax in c(1e-3, 5e-3, 1e-2, 5e-2, 1e-1)) {
 ## eQTL rank plot
 #
 celltype <- "B"
-highlight <- ""
+highlight <- c("CD55", "ADCY3")
 tar_pval_col <- paste0("p_value_", celltype, "_Common")
 tar_beta_col <- paste0("beta_", celltype, "_Common")
 
@@ -343,13 +377,8 @@ qtlrank_tab <- eqtl_tab %>%
 myplot <- ggplot() +
   geom_point(aes(x = rank, y = p_value), qtlrank_tab, shape = 21, color = "gray", fill = "gray", size = 0.75) +
   geom_point(aes(x = rank, y = p_value), head(qtlrank_tab, 10), shape = 21, color = "black", fill = "purple", size = 3, alpha = 0.5) +
-  geom_text_repel(
-    aes(rank, p_value, label = feature_id), dplyr::filter(qtlrank_tab, feature_id != highlight) %>% head(9),
-    min.segment.length = 0, max.overlaps = 20, box.padding = 0.5
-  ) +
-  geom_label_repel(
-    aes(rank, p_value, label = feature_id), dplyr::filter(qtlrank_tab, feature_id == highlight), color = "red", box.padding = 7
-  ) +
+  geom_text_repel(aes(rank, p_value, label = feature_id), dplyr::filter(qtlrank_tab, !feature_id %in% highlight) %>% head(9), min.segment.length = 0, max.overlaps = 20, box.padding = 0.5) +
+  geom_label_repel(aes(rank, p_value, label = feature_id), dplyr::filter(qtlrank_tab, feature_id %in% highlight), color = "red", box.padding = 7) +
   labs(x = "Rank by p-value", y = "-Log10(p-value)") +
   theme_classic()
 save_to <- file.path(proj_dir, "outputs/pseudo_bulk/overview", paste0("eqtl_rank.", celltype, ".pdf"))
@@ -357,88 +386,71 @@ ggsave(save_to, plot = myplot, width = 6, height = 4)
 
 
 #
-## Choose an example eQTL, excepting ADCY3-rs11687089
-#
-tar_qtl <- eqtl_tab %>%
-  dplyr::select(c(feature_id, snp_id, dplyr::contains("_Common") & dplyr::contains("global_corrected_pValue"))) %>%
-  tidyr::pivot_longer(cols = dplyr::contains("global_"), names_to = "Celltype", values_to = "global_corrected_pValue") %>%
-  dplyr::filter(global_corrected_pValue < fdr_max & !is.na(global_corrected_pValue)) %>%
-  dplyr::mutate(Celltype = stringr::str_remove_all(Celltype, "global_corrected_pValue_|_Common")) %>%
-  dplyr::group_by(feature_id, snp_id) %>%
-  dplyr::summarize(
-    QTL = paste(snp_id, feature_id, sep = "-"),
-    Celltype_specific = n() == 1,
-    TCell_specific = sum(cur_data()$Celltype %in% c("CD4T", "CD8T")) == 2
-  )
-
-# ADCY3-rs11687089, DEAF1-rs10794331, GFM1-rs1367313, PPFIBP2-rs4758197, HAGH-rs344352
-t_cell_specific <- tar_qtl %>% dplyr::filter(TCell_specific) %$% QTL
-eqtl_tab %>%
-  dplyr::select(feature_id, snp_id, QTL, dplyr::contains("_Common")) %>%
-  dplyr::filter(QTL %in% t_cell_specific) %>%
-  data.table::fwrite("TCell_specific.eQTL.csv")
-
-eqtl_tab %>%
-  dplyr::filter(
-    is.na(global_corrected_pValue_Monocytes_Common),
-    !is.na(global_corrected_pValue_Monocytes_T0_LPS.vs.T0_RPMI),
-    dplyr::if_any(dplyr::contains("_Common") & dplyr::contains("_pValue"), ~ !is.na(.x))
-  ) %>%
-dplyr::select(-dplyr::contains("beta"), -dplyr::contains("global")) %>%
-as.data.frame()
-
-
-#
 ## Plot number of coloc loci
 #
 min_h4 <- 0.3
-nr_indep_loci_per_gwas <- tibble::tribble(
-  ~GWAS, ~nr_independent_loci, ~abbrev,
-  # "AsthmaDT1", 13, "ASDT1",
-  "CoronaryHeartDisease", 55, "CHD",
-  "ObesityClass1", 24, "OB1",
-  "ObesityClass2", 13, "OB2",
-  "ObesityClass3", 3, "OB3",
-  "ThyroidCancer", 741, "TC",
-  "AtopicDermatitis", 19, "AD",
-  "Height", 1044, "HT",
-  "LungCancer", 13, "LC",
-  "Schizophrenia", 152, "SZ",
-  "Urate", 6, "UT",
-  "CrohnsDisease", 91, "CrD",
-  "InflammatoryBowelDisease", 109, "IBD",
-  "SystemicLupusErythematosus", 145, "SLE",
-  "UlcerativeColitis", 62, "UC",
-  "AsthmaDT2", 42, "AS",
-  "GoutDisease", 38, "GD",
-  "OvarianCancer", 2, "OC",
-  "Psoriasis", 116, "PR",
-  "BodyMassIndex", 1457, "BMI",
-  "DiastolicBloodPressure", 1350, "DBP",
-  "RheumatoidArthritis", 50, "RA",
-  "SystolicBloodPressure", 1279, "SBP",
-  "Type2Diabetes", 169, "T2D",
-  "MultipleSclerosis", 47, "MS",
-  "COVID19Release4", 4, "COVID19_R4",
-  "HDLCholesterol", 1198, "HDL",
-  "LDLCholesterol", 587, "LDL",
-  "Triglycerides", 1028, "TRI",
-  "BladderCancer", 1, "BC",
-  "ColorectalCancer", 9, "CC",
-  "ProstateCancer", 66, "PC",
-  "AlzheimerDiseases", 15, "AzD",
-  "COVID19Release7", 52, "COVID19"#_R7"
+gwas_abbr <- c(
+  "AsthmaDT1" = "ASDT1", "CoronaryHeartDisease" = "CHD", "ObesityClass1" = "OB1", "ObesityClass2" = "OB2",
+  "ObesityClass3" = "OB3", "ThyroidCancer" = "TC", "AtopicDermatitis" = "AD", "Height" = "Height", "LungCancer" = "LC",
+  "Schizophrenia" = "SZ", "Urate" = "UT", "CrohnsDisease" = "CrD", "InflammatoryBowelDisease" = "IBD",
+  "SystemicLupusErythematosus" = "SLE", "UlcerativeColitis" = "UC", "AsthmaDT2" = "AS", "GoutDisease" = "GD",
+  "OvarianCancer" = "OC", "Psoriasis" = "PR", "BodyMassIndex" = "BMI", "DiastolicBloodPressure" = "DBP",
+  "RheumatoidArthritis" = "RA", "SystolicBloodPressure" = "SBP", "Type2Diabetes" = "T2D", "MultipleSclerosis" = "MS",
+  "COVID19Release4" = "COVID19_R4", "HDLCholesterol" = "HDL", "LDLCholesterol" = "LDL", "Triglycerides" = "TRI",
+  "BladderCancer" = "BC", "ColorectalCancer" = "CC", "ProstateCancer" = "PC", "AlzheimerDiseases" = "AzD",
+  "COVID19Release7" = "COVID19"
 )
+
+# Number of independent loci per GWAS.
+independent_loci <- fread(file.path(proj_dir, "outputs/public_gwas/all_of_indenpendent_loci_per_gwas.txt")) %>%
+  dplyr::mutate(GWAS = stringr::str_replace_all(GWAS, "^(.*?)_(.*?)_(.*)", "\\2"))
+
+plot_tab <- independent_loci %>%
+  dplyr::group_by(GWAS) %>%
+  dplyr::summarise(nr_independent_loci = n()) %>%
+  dplyr::ungroup() %>%
+  dplyr::arrange(nr_independent_loci) %>%
+  dplyr::mutate(
+    GWAS_abbr = gwas_abbr[GWAS],
+    Category = dplyr::case_when(
+      GWAS_abbr %in% c("HDL", "Height", "BMI", "TRI", "LDL") ~ "General traits",
+      GWAS_abbr %in% c("AD", "SLE", "GD", "PR", "RA", "MS") ~ "Autoimmune diseases",
+      GWAS_abbr %in% c("PC", "TC", "LC", "BC", "CC", "OC") ~ "Cancer",
+      GWAS_abbr %in% c("OB1", "OB2", "OB3") ~ "Obesity",
+      GWAS_abbr %in% c("IBD", "UC", "CrD") ~ "IBD",
+      GWAS_abbr %in% c("COVID19") ~ "Infectious diseases",
+      T ~ "Others"),
+    bar_label = paste0(GWAS_abbr, " (", nr_independent_loci, ")"),
+    nr_independent_loci = dplyr::if_else(GWAS_abbr == "MS", as.integer(100), nr_independent_loci), # MS has 101 independent loci, just for ordering purpose.
+  ) %>%
+  dplyr::filter(!GWAS_abbr %in% c("COVID19_R4", "SBP", "DBP", "UT", "ASDT1")) %>%
+  dplyr::mutate(
+    GWAS_abbr = forcats::fct_reorder(GWAS_abbr, nr_independent_loci),
+    angle = 90 - 360 * (1:n() - 0.5) / n(),
+    hjust = ifelse(angle <= -90, 1, 0),
+    angle = ifelse(angle <= -90, angle + 180, angle)
+  )
+
+p <- plot_tab %>%
+  ggplot(aes(x = GWAS_abbr, y = nr_independent_loci, fill = Category)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = bar_label, hjust = hjust), angle = plot_tab$angle, size = 3) +
+  scale_y_log10(limits = c(1, 20000)) +
+  coord_polar(start = 0) +
+  theme_void()
+save_to <- file.path(proj_dir, "outputs/pseudo_bulk/colocalization/nr_independent_loci_per_gwas.pdf")
+ggsave(save_to, plot = p, width = 6, height = 6)
+
 
 # Number of colocalizations.
 mode <- "normal"
 coloc_files <- list.files(file.path(proj_dir, "outputs/pseudo_bulk/colocalization", mode), pattern = "*.csv", recursive = TRUE, full.names = TRUE)
 
-mat <- coloc_files %>%
+coloc_mat <- coloc_files %>%
   lapply(function(fp) {
     if (mode == "normal") {
       celltype <- fp %>% dirname() %>% basename()
-      condition <- ""
+      condition <- "common"
     } else {
       celltype <- fp %>% dirname() %>% dirname() %>% basename()
       condition <- fp %>% dirname() %>% basename()
@@ -447,41 +459,62 @@ mat <- coloc_files %>%
     data.table::fread(fp) %>%
       dplyr::mutate(Celltype = celltype, Condition = condition, outcome = as.character(outcome)) %>%
       dplyr::group_by(outcome, Celltype, Condition) %>%
-      dplyr::filter(H4 >= min_h4) %>%
-      dplyr::summarise(n_genes = n(), gene_list = paste(exposure, collapse = "|"), .groups = "keep")
+      dplyr::filter(H4 >= min_h4)
   }) %>%
-  Reduce(rbind, .) %>%
-  dplyr::inner_join(nr_indep_loci_per_gwas, by = c("outcome" = "GWAS")) %>%
-  dplyr::mutate(coloc_prop = n_genes / nr_independent_loci)
+  Reduce(rbind, .)
 
-prop_mat <- mat %>%
+overlapped_loci <- coloc_mat %>%
+  dplyr::group_by(outcome) %>%
+  dplyr::summarise(nr_coloc = {
+    per_outcome <- dplyr::cur_group()$outcome
+
+    .indep_loci_pg <- dplyr::filter(independent_loci, GWAS == per_outcome) 
+    .indep_loci_nr_pg <- nrow(.indep_loci_pg)
+    .clumpped_snps_pg <- stringr::str_extract_all(.indep_loci_pg$SP2, "rs[0-9]+") %>% Reduce(c, .)
+
+    cat("[I]: ", per_outcome, "has", n(), "loci colocalized with eQTL.")
+    cat("The GWAS has", length(.clumpped_snps_pg), "SNPs from", .indep_loci_nr_pg, "independent loci. \n")
+
+    dplyr::cur_data() %>%
+      dplyr::rowwise() %>%
+      dplyr::mutate(nr_overlapped_loci = sum(dplyr::filter(eqtl_tab, feature_id == exposure, celltype == celltype, condition == condition)$snp_id %in% .clumpped_snps_pg)) %>%
+      tidyr::unnest(cols = c(nr_overlapped_loci)) %>%
+      dplyr::mutate(nr_indep_loci = .indep_loci_nr_pg)
+  }) %>%
+  tidyr::unnest(cols = c(nr_coloc)) %>%
+  dplyr::mutate(abbrev = gwas_abbr[outcome]) %>%
+  dplyr::filter(!abbrev %in% c("COVID19_R4", "SBP", "DBP", "UT", "ASDT1"))
+
+prop_mat <- overlapped_loci %>%
+  dplyr::group_by(abbrev, Celltype, Condition, nr_indep_loci) %>%
+  dplyr::summarise(nr_overlaps = sum(nr_overlapped_loci>0)) %>%
+  dplyr::mutate(coloc_prop = nr_overlaps / nr_indep_loci * 100) %>%
   tidyr::pivot_wider(id_cols = abbrev, names_from = c(Celltype, Condition), values_from = coloc_prop) %>%
   dplyr::ungroup() %>%
   dplyr::mutate(dplyr::across(-abbrev, ~ dplyr::if_else(is.na(.x), as.double(0), .x))) %>%
-  dplyr::rename_with(~stringr::str_remove(.x, pattern = "_$")) %>%
+  dplyr::rename_with(~stringr::str_remove(.x, pattern = "_common$")) %>%
   (function(m) {
-    tmp <- m %>% dplyr::select(-abbrev) %>% as.matrix()
+    tmp <- dplyr::select(m, -abbrev) %>% as.matrix()
     rownames(tmp) <- m$abbrev
     tmp
   })
 
-count_mat <- mat %>%
-  tidyr::pivot_wider(id_cols = abbrev, names_from = c(Celltype, Condition), values_from = n_genes) %>%
+count_mat <- overlapped_loci %>%
+  tidyr::pivot_wider(id_cols = abbrev, names_from = c(Celltype, Condition), values_from = nr_indep_loci, values_fn = length) %>%
   dplyr::ungroup() %>%
   dplyr::mutate(dplyr::across(-abbrev, ~ dplyr::if_else(is.na(.x), as.integer(0), .x))) %>%
-  dplyr::rename_with(~stringr::str_remove(.x, pattern = "_$")) %>%
+  dplyr::rename_with(~stringr::str_remove(.x, pattern = "_common$")) %>%
   (function(m) {
     tmp <- m %>% dplyr::select(-abbrev) %>% as.matrix()
     rownames(tmp) <- m$abbrev
     tmp
   })
 
-
-col_fun_prop <- colorRamp2(c(0, max(prop_mat)), c("gray95", "#2166AC"))
-save_to <- file.path(proj_dir, "outputs/pseudo_bulk/colocalization", paste0(mode, ".colocalization.per_celltype.pdf"))
+col_fun_prop <- colorRamp2(c(0.0, max(prop_mat)), c("gray95", "#2166AC"))
+save_to <- file.path(proj_dir, "outputs/pseudo_bulk/colocalization", paste0(mode, ".colocalization.per_celltype.v3.pdf"))
 pdf(save_to, width = 8, height = 3)
 hm <- Heatmap(t(prop_mat),
-  col = col_fun_prop, name = "Prop. of \ncolocs",
+  col = col_fun_prop, name = "Per. of \ncolocs",
   top_annotation = columnAnnotation(Counts = anno_barplot(rowSums(count_mat)), show_annotation_name = FALSE),
   right_annotation = rowAnnotation(Counts = anno_barplot(colSums(count_mat)), show_annotation_name = FALSE),
   column_names_rot = 45, column_names_side = "top", column_dend_side = "bottom"
@@ -499,14 +532,13 @@ example_eqtl <- tibble::tribble(
   "rs11687089", "ADCY3", # Good common eQTL across different conditions.
   "rs2564978", "CD55", # Good example contrast pattern across cell types (i.e., rs2564978-C is associated higher expression in Monocytes but lower expression in CD4T/CD8T).
   "rs11080327", "SLFN5", # Also good ieQTL, but not cell-type specific. GETex (WB, 1.5e-49)
+  # "rs883416", "SLFN5", # Also good ieQTL, but not cell-type specific. GETex (WB, 1.5e-49), replacint rs11080327.
 )
 
 apply(example_eqtl, 1, function(e) {
   per_snp <- e["snp"]
-  per_snp <- "rs883416"
-  per_snp <- "rs11080327"
   per_feature <- e["feature"]
-  per_feature <- "SLFN5"
+  # per_snp <- "rs2564978"; per_feature <- "CD55"
   gt_col <- paste0(per_snp, "_GT")
 
   per_infile <- file.path(work_dir, paste0(per_feature, "-", per_snp, ".QTL_info.csv"))
@@ -523,8 +555,7 @@ apply(example_eqtl, 1, function(e) {
       for (pg in unique(tab[, gt_col])) {
         pg_1 <- substr(pg, 1, 1)
         pg_2 <- substr(pg, 2, 2)
-        if (pg_1 != pg_2)
-          new_level <- paste0(c(pg_1, pg_1, pg_2), c(pg_1, pg_2, pg_2))
+        if (pg_1 != pg_2) new_level <- paste0(c(pg_1, pg_1, pg_2), c(pg_1, pg_2, pg_2))
       }
       tab[gt_col] <- factor(tab[, gt_col], levels = new_level)
 
@@ -545,7 +576,7 @@ apply(example_eqtl, 1, function(e) {
   }
   plot <- facet(plot, facet.by = "celltype", nrow = 1)
   save_to <- file.path(work_dir, paste0("normal.", per_feature, "-", per_snp, ".all_cell_type.boxplot.pdf"))
-  ggsave(save_to, plot = plot, width = 8, height = 4)
+  ggsave(save_to, plot = plot, width = 6, height = 4)
 
   # Per condition
   plot_tab <- dplyr::mutate(eqtl_tab, condition = paste0(time, "_", stim), condition = factor(condition, c("T0_RPMI", "T0_LPS", "T3m_RPMI", "T3m_LPS")))
@@ -599,8 +630,7 @@ apply(example_eqtl, 1, function(e) {
 #
 ## Per genotype expression of ADCY3/CD55/SLFN5
 #
-genotype_tab <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/tar_snps.genotypes.csv") %>%
-  fread() %>%
+genotype_tab <- fread(file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/tar_snps.genotypes.csv")) %>%
   dplyr::rename_with(.fn = ~ stringr::str_remove_all(.x, "\\[[0-9]{1,2}\\]|:GT$|^# "))
 
 gt_per_ind <- genotype_tab %>%
@@ -671,44 +701,9 @@ plot <- (vllist | fplist) + plot_layout(width = c(1, 4))
 save_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/CD55_expression.per_genotype.pdf")
 ggsave(save_to, plot = plot, width = 10, height = 10)
 
-pbmc@meta.data$rs2564978_chr1_207321071_T_C <- factor(pbmc@meta.data$rs2564978_chr1_207321071_T_C, levels = c("TT", "TC", "CC"))
-g_cd55_exp <- FeaturePlot(pbmc, feature = c("CD55"), split.by = "rs2564978_chr1_207321071_T_C") & NoLegend() & NoAxes()
-save_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/CD55_expression.per_genotype.feature_plot.pdf")
-ggsave(save_to, plot = g_cd55_exp, width = 7, height = 3)
-
-g_cd55_exp <- VlnPlot(pbmc, feature = c("CD55"), pt.size = 0, idents = c("Monocytes", "CD4+ T", "CD8+ T", "NK", "B"), split.by = "rs2564978_chr1_207321071_T_C") & labs(x = NULL)
-save_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/CD55_expression.per_genotype.violin_plot.pdf")
-ggsave(save_to, plot = g_cd55_exp, width = 7, height = 3)
-
-g_spi1_exp <- FeaturePlot(pbmc, feature = c("SPI1"), split.by = "rs2564978_chr1_207321071_T_C") & NoLegend() & NoAxes()
-save_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/SPI1_expression.per_genotype.feature_plot.pdf")
-ggsave(save_to, plot = g_spi1_exp, width = 7, height = 3)
-
-g_spi1_exp <- VlnPlot(pbmc, feature = c("SPI1"), pt.size = 0, idents = c("Monocytes", "CD4+ T", "CD8+ T", "NK", "B"), split.by = "rs2564978_chr1_207321071_T_C") & labs(x = NULL)
-save_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/SPI1_expression.per_genotype.violin_plot.pdf")
-ggsave(save_to, plot = g_spi1_exp, width = 7, height = 3)
-
-pbmc@meta.data$rs11687089_chr2_24860057_T_C <- factor(pbmc@meta.data$rs11687089_chr2_24860057_T_C, levels = c("TT", "TC", "CC"))
-g_adcy3_exp <- FeaturePlot(pbmc, feature = c("ADCY3"), split.by = "rs11687089_chr2_24860057_T_C") & NoLegend() & NoAxes()
-save_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/ADCY3_expression.per_genotype.feature_plot.pdf")
-ggsave(save_to, plot = g_adcy3_exp, width = 7.5, height = 3)
-
-g_adcy3_exp <- VlnPlot(pbmc, feature = c("ADCY3"), pt.size = 0, idents = c("Monocytes", "CD4+ T", "CD8+ T", "NK", "B"), split.by = "rs11687089_chr2_24860057_T_C")
-save_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/ADCY3_expression.per_genotype.violin_plot.pdf")
-ggsave(save_to, plot = g_adcy3_exp, width = 7.5, height = 3)
-
-pbmc@meta.data$rs11080327_chr17_35244527_G_A <- factor(pbmc@meta.data$rs11080327_chr17_35244527_G_A, levels = c("GG", "GA", "AA"))
-g_slfn5_exp <- FeaturePlot(pbmc, feature = c("SLFN5"), split.by = "rs11080327_chr17_35244527_G_A") & NoLegend() & NoAxes()
-save_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/SLFN5_expression.per_genotype.feature_plot.pdf")
-ggsave(save_to, plot = g_slfn5_exp, width = 7.5, height = 3)
-
-g_slfn5_exp <- VlnPlot(pbmc, feature = c("SLFN5"), pt.size = 0, idents = c("Monocytes", "CD4+ T", "CD8+ T", "NK", "B"), split.by = "rs11080327_chr17_35244527_G_A")
-save_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/SLFN5_expression.per_genotype.violin_plot.pdf")
-ggsave(save_to, plot = g_slfn5_exp, width = 7.5, height = 3)
-
 
 #
-##  Correlation between BMI and ADCY3
+##  Correlation between BMI and ADCY3. TODO: removing this section, as it is not related to eQTL analysis.
 #
 work_dir <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL")
 meta_info <- file.path(proj_dir, "inputs/phenotypes/meta_information.with_bmi.csv") %>% data.table::fread()
@@ -800,37 +795,42 @@ tmp <- apply(example_qtl, 1, function(line, .mtab) {
 #
 ## Allele-specific TF binding affinities
 #
-tar_snp <- "rs2564978"
-tar_snp <- "rs11080327"
+# abs_fc: fold-change of allele-specific binding affinity calculated by -log2(alt/ref). Positive values mean alt allele has higher binding affinity.
+# motif_fc: fold-change of log2-ratio between motif P-values for the ref and alt alleles. Positive values indicate Alt-ASBs (preferred binding to the alt allele).
 
-astfb_tab <- data.table::fread(file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/ASTFB", paste0(tar_snp, ".astfb.txt")))
+tar_celltype <- "CD4+ T"; tar_feature <- "SLFN5"; tar_snp <- "rs11080327"
+tar_celltype <- "Monocytes"; tar_feature <- "CD55"; tar_snp <- "rs2564978"
+
 DefaultAssay(pbmc) <- "RNA"
 tar_bcg_features <- rownames(pbmc)
 
-tar_astfb <- astfb_tab %>%
+# Allele-specific TF binding affinities, TF
+astfb_tf_tab <- data.table::fread(file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/ASTFB", paste0(tar_snp, ".astfb_tf.txt")))
+
+tar_astfb <- astfb_tf_tab %>%
   dplyr::filter(!is.na(motif_log_pref), !is.na(motif_log_palt), TF %in% tar_bcg_features) %>%
-  dplyr::mutate(asb_fc = log2(fdrp_bh_alt / fdrp_bh_ref)) %>%
+  dplyr::mutate(asb_fc = -log2(fdrp_bh_alt / fdrp_bh_ref)) %>%
   dplyr::arrange(asb_fc) %>%
   dplyr::mutate(
     asb_sig = dplyr::if_else(fdrp_bh_alt < 0.05 | fdrp_bh_ref < 0.05, "Yes", "No"),
     asb_sig = factor(asb_sig, levels = c("Yes", "No")),
     motif_sig = dplyr::if_else(motif_log_palt > -log10(0.05) | motif_log_pref > -log10(0.05), "Yes", "No"),
     motif_sig = factor(motif_sig, levels = c("Yes", "No")),
-    TF = factor(TF, .$TF)
-  )
-tf_order <- tar_astfb$TF
+    TF = forcats::fct_reorder(TF, asb_fc)
+  ) %>%
+  dplyr::filter(asb_sig == "Yes" | motif_sig == "Yes")
 
 asb_bar_plot <- ggplot(tar_astfb, aes(x = asb_fc, y = TF, fill = asb_sig)) +
   geom_bar(stat = "identity") +
   scale_fill_npg() +
-  labs(y = NULL, x = "Allelic binding FC") +
+  labs(y = NULL, x = "Allelic binding FC (ALT/REF)") +
   theme_classic() +
-  theme(axis.ticks.y.left = element_blank(), axis.text.y.left = element_blank(), axis.line.y.left = element_blank(), legend.position = "none")
+  theme(axis.ticks.y.left = element_blank(), axis.line.y.left = element_blank(), legend.position = "none")
 
 motif_bar_plot <- ggplot(tar_astfb, aes(x = motif_fc, y = TF, fill = motif_sig)) +
   geom_bar(stat = "identity") +
-  scale_fill_npg(name = "Signif.") +
-  labs(y = NULL, x = "Motif FC") +
+  scale_fill_npg() +
+  labs(y = NULL, x = "Motif FC", fill = "FDR < 0.05") +
   theme_classic() +
   theme(axis.ticks.y.left = element_blank(), axis.text.y.left = element_blank(), axis.line.y.left = element_blank(), legend.position = "top")
 
@@ -842,17 +842,44 @@ motif_pos <- ggplot(tar_astfb, aes(x = motif_pos - 25, y = TF, xend = motif_pos,
   theme_classic() +
   theme(axis.ticks.x.bottom = element_blank(), axis.text.x.bottom = element_blank(), legend.position = "top")
 
-bar_plots <- motif_pos + asb_bar_plot + motif_bar_plot
-save_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/ASTFB", paste0(tar_snp, ".pdf"))
-ggsave(save_to, plot = bar_plots, width = 6, height = 3.25)
+bar_plots <- asb_bar_plot + motif_bar_plot
+save_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/ASTFB", paste0(tar_snp, "_v2.pdf"))
+ggsave(save_to, plot = bar_plots, width = 5, height = 3)
+
+# Allele-specific TF binding affinities, CL
+astfb_cl_tab <- data.table::fread(file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/ASTFB", paste0(tar_snp, ".astfb_cl.txt")))
+tar_astfb_cl <- astfb_cl_tab %>%
+  dplyr::filter(!is.na(es_mean_ref), !is.na(es_mean_alt)) %>%
+  dplyr::mutate(asb_fc = -log2(fdrp_bh_alt / fdrp_bh_ref)) %>%
+  dplyr::arrange(asb_fc) %>%
+  dplyr::mutate(
+    CL = stringr::str_replace_all(CL, "_+", " ") %>% stringr::str_remove_all(" ?.tsv") %>% stringr::str_trunc(width = 40),
+    asb_sig = dplyr::if_else(fdrp_bh_alt < 0.05 | fdrp_bh_ref < 0.05, "Yes", "No"),
+    asb_sig = factor(asb_sig, levels = c("Yes", "No")),
+    CL = forcats::fct_reorder(CL, asb_fc)
+  ) %>%
+  dplyr::filter(abs(asb_fc) > 1.5)
+
+asb_cl_bar_plot <- ggplot(tar_astfb_cl, aes(x = asb_fc, y = CL, fill = asb_sig)) +
+  geom_bar(stat = "identity") +
+  scale_fill_npg() +
+  labs(y = NULL, x = "Allelic binding FC (ALT/REF)", fill = "FDR < 0.05") +
+  theme_classic() +
+  theme(axis.ticks.y.left = element_blank(), axis.line.y.left = element_blank(), legend.position = "top")
+
+save_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/ASTFB", paste0(tar_snp, ".astfb_cl.v1.pdf"))
+ggsave(save_to, plot = asb_cl_bar_plot, width = 5, height = 4)
 
 
 #
 ## Co-expression of TF and target gene
 #
-group_idx <- c("clusters1", "time", "stim", "ids")
-coexp_features <- c(as.character(tar_astfb$TF), "CD55")
+coexp_features <- c(as.character(tar_astfb$TF), tar_feature)
+DefaultAssay(pbmc) <- "RNA"
 
+# Co-expression of TF and target features per cell-type per contidtion per timepoint
+save_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL", paste0(tar_feature, "_TF.coexpression.all_conditions.single_cell.300BCG.csv"))
+if (!file.exists(save_to)) {
 cor_test_tab <- pbmc@meta.data %>%
   dplyr::mutate(cell_barcode = rownames(.)) %>%
   dplyr::group_by(clusters1, time, stim) %>%
@@ -872,9 +899,9 @@ cor_test_tab <- pbmc@meta.data %>%
 
     regr_res <- NULL
     for (per_tf in coexp_features) {
-      if (per_tf == "CD55") next
+      if (per_tf == tar_feature) next
 
-      fml <- formula(stringr::str_glue("CD55 ~ {per_tf} + ({per_tf} | ids) + age + gender"))
+      fml <- formula(stringr::str_glue("{tar_feature} ~ {per_tf} + ({per_tf} | ids) + age + gender"))
       regr_res <- tryCatch(
         expr = summary(lmer(fml, regr_tab))$coefficients %>% as.data.frame() %>% dplyr::mutate(param = rownames(.)) %>% rbind(regr_res),
         error = function(e) NULL
@@ -888,10 +915,13 @@ cor_test_tab <- pbmc@meta.data %>%
   dplyr::filter(param %in% coexp_features) %>%
   dplyr::mutate(p_value_adj_fdr = p.adjust(p_value, method = "fdr"))
 
-save_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/CD55_TF.coexpression.all_conditions.single_cell.csv")
-fwrite(cor_test_tab, save_to)
+  fwrite(cor_test_tab, save_to)
+} else {
+  cor_test_tab <- data.table::fread(save_to)
+}
+
 p <- cor_test_tab %>%
-  dplyr::filter(celltype == "Monocytes") %>%
+  dplyr::filter(celltype %in% tar_celltype) %>%
   dplyr::mutate(
     p_value_label = dplyr::if_else(p_value_adj_fdr < 0.05 & p_value_adj_fdr > 0, "#", ""),
     p_value_adj_fdr_log10 = -log10(p_value_adj_fdr),
@@ -902,138 +932,284 @@ p <- cor_test_tab %>%
   ) %>%
   ggplot() +
   geom_point(aes(x = condition, y = param, color = t_statistic, size = p_value_log10)) +
-  geom_text(aes(x = condition, y = param, label = p_value_label), size = 5) +
-  scale_size(name = "-log10(p_adj)", range = c(1, 12)) +
+  geom_text(aes(x = condition, y = param, label = p_value_label), size = 2) +
+  scale_size(name = "-log10(p_adj)", range = c(1, 6)) +
   scale_color_gradient2(name = "Z-score", low = "#3C5488FF", mid = "gray95", high = "#DC0000FF") +
   theme_bw() +
-  theme(
-    legend.position = "right", legend.title = element_text(size = 12),
-    axis.line.x.top = element_blank(), axis.line.y.left = element_blank(),
-    axis.text.x = element_text(vjust = 1, hjust = 1, angle = 45, size = 12), axis.text.y = element_text(size = 12),
-  ) +
+  theme(legend.position = "right", legend.title = element_text(size = 12), axis.line.x.top = element_blank(), axis.line.y.left = element_blank(), axis.text.x = element_text(vjust = 1, hjust = 1, angle = 45, size = 12), axis.text.y = element_text(size = 12)) +
   labs(x = NULL, y = NULL)
 
-save_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/CD55_TF.coexpression.Monocytes.all_conditions.single_cell.pdf")
-ggsave(save_to, plot = p, width = 5, height = 4.5)
+save_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL", paste0(tar_feature, "_TF.coexpression.", stringr::str_remove_all(tar_celltype, "[+ ]"), ".all_conditions.single_cell.300BCG.pdf"))
+ggsave(save_to, plot = p, width = 3.5, height = 7)
+
+
+# Co-expression of TF and target features per cell-type, i.e., combined conditions and time-points
+save_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL", paste0(tar_feature, "_TF.coexpression.combined_conditions.single_cell.300BCG.csv"))
+if (!file.exists(save_to)) {
+  cor_test_tab <- pbmc@meta.data %>%
+    dplyr::mutate(cell_barcode = rownames(.)) %>%
+    dplyr::group_by(clusters1) %>%
+    dplyr::summarise(n = n()) %>%
+    as.data.frame() %>%
+    apply(1, function(vec) {
+      per_cluster <- vec[1]
+      tar_cells <- pbmc@meta.data %>% as.data.frame() %>% dplyr::filter(clusters1 == per_cluster) %>% rownames()
+      sub_pbmc <- pbmc[coexp_features, tar_cells]
+
+      meta_tab <- sub_pbmc@meta.data %>% as.data.frame()
+      expr_tab <- sub_pbmc@assays$RNA@data %>% as.data.frame() %>% t()
+      regr_tab <- cbind(meta_tab, expr_tab)
+
+      regr_res <- NULL
+      for (per_tf in coexp_features) {
+        if (per_tf == tar_feature) next
+
+        fml <- formula(stringr::str_glue("{tar_feature} ~ {per_tf} + ({per_tf} | ids) + time + stim + age + gender"))
+        regr_res <- tryCatch(
+          expr = summary(lmer(fml, regr_tab))$coefficients %>% as.data.frame() %>% dplyr::mutate(param = rownames(.)) %>% rbind(regr_res),
+          error = function(e) NULL
+        )
+      }
+      rownames(regr_res) <- NULL
+      dplyr::mutate(regr_res, celltype = per_cluster)
+    }) %>%
+  Reduce(rbind, .) %>%
+  dplyr::select(dplyr::all_of(c("beta" = "Estimate", "beta_se" = "Std. Error", "t_statistic" = "t value", "p_value" = "Pr(>|t|)", "param", "celltype"))) %>%
+  dplyr::filter(param %in% coexp_features) %>%
+  dplyr::mutate(p_value_adj_fdr = p.adjust(p_value, method = "fdr"))
+  fwrite(cor_test_tab, save_to)
+} else {
+  cor_test_tab <- data.table::fread(save_to)
+}
+
+p <- cor_test_tab %>%
+  dplyr::filter(celltype %in% c("Monocytes", "CD4+ T", "CD8+ T", "NK", "B")) %>%
+  dplyr::mutate(
+    p_value_label = dplyr::if_else(p_value_adj_fdr < 0.05 & p_value_adj_fdr > 0, "x", ""),
+    p_value_adj_fdr_log10 = -log10(p_value_adj_fdr),
+    p_value_log10 = -log10(p_value), param = factor(param, rev(tar_astfb$TF)),
+    celltype = factor(celltype, levels = rev(c("Monocytes", "CD4+ T", "CD8+ T", "NK", "B")))
+  ) %>%
+  ggplot() +
+  geom_point(aes(x = param, y = celltype, color = t_statistic, size = p_value_log10), alpha = 1) +
+  geom_text(aes(x = param, y = celltype, label = p_value_label), size = 3) +
+  scale_size(name = "-log10(p_adj)", range = c(0.1, 12), breaks = c(10, 25, 40)) +
+  scale_color_gradient2(name = "Z-score", low = "#3C5488", mid = "gray99", high = "#DC0000") +
+  labs(y = NULL, x = NULL) +
+  theme_bw() +
+  theme(legend.position = "top", legend.title = element_text(size = 10), axis.line.x.top = element_blank(), axis.line.y.left = element_blank(), axis.text.x = element_text(vjust = 1, hjust = 1, angle = 45, size = 12), axis.text.y = element_text(size = 12))
+
+save_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL", paste0(tar_feature, "_TF.coexpression.all_cell_type.single_cell.300BCG.pdf"))
+ggsave(save_to, plot = p, width = 6, height = 3.5)
+
+
+# Expression profile of target TFs
+p <- DotPlot(sub_pbmc, features = coexp_features, cols = "RdBu") + RotatedAxis() + coord_flip()
+save_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL", paste0(tar_feature, "_TF.dot_plot.300BCG.pdf"))
+ggsave(save_to, plot = p, width = 4.5, height = 4)
+
+
+# Correlation between CD55 and TFs, pseudo-bulk
+exptab_pb <- pbmc[coexp_features, pbmc$clusters1 %in% c("Monocytes", "B")] %>%
+  AverageExpression(assays = "RNA", group.by = c("clusters1", "ids", "time", "stim")) %>%
+  as.data.frame() %>%
+  dplyr::mutate(feature_id = rownames(.))
+
+regr_tab <- exptab_pb %>%
+  tidyr::pivot_longer(cols = -feature_id) %>%
+  tidyr::separate(name, into = c("celltype", "ids", "time", "stim"), sep = "_") %>%
+  dplyr::mutate(celltype = stringr::str_remove(celltype, "RNA.")) %>%
+  tidyr::pivot_wider(names_from = feature_id, values_from = value) %>%
+  tidyr::pivot_longer(cols = -c(celltype, ids, CD55, time, stim)) %>%
+  dplyr::left_join(gt_per_ind, by = "ids") %>%
+  dplyr::filter(name == "SPI1") %>%
+  dplyr::mutate(stim = factor(stim, levels = c("RPMI", "LPS")))
+
+m <- lmer("CD55 ~ (value | ids) + value * rs2564978_chr1_207321071_T_C + stim + time", data = regr_tab)
+summary(m)
+
+predict(m, regr_tab)
+
+p <- ggplot(dplyr::filter(exptab_pb, name == "SPI1"), aes(x = CD55, y = value, color = genotype)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  facet_wrap(~celltype, scales = "free", nrow = 2) +
+  labs(y = "Average expression") +
+  theme_classic()
+save_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL", paste0(tar_feature, "_TF.coexpression.pseudo_bulk.300BCG.pdf"))
+ggsave(save_to, plot = p, width = 6, height = 6)
+
+
+# Correlation between CD55 and TFs, single-cell
+sub_pbmc <- pbmc[coexp_features, pbmc$clusters1 %in% c("Monocytes", "B")]
+meta_tab <- sub_pbmc@meta.data %>% as.data.frame()
+expr_tab <- sub_pbmc@assays$RNA@data %>% as.data.frame() %>% t()
+exptab_sc <- cbind(meta_tab, expr_tab) %>%
+  dplyr::select(dplyr::all_of(c(celltype = "clusters1", "ids", "time", "stim", "age", "gender", coexp_features))) %>%
+  as.data.table() %>%
+  tidyr::pivot_longer(cols = -c(celltype, ids, time, stim, age, gender, CD55))
+
+p <- ggplot(dplyr::filter(exptab_sc, name == "SPI1"), aes(x = CD55, y = value, color = celltype)) +
+  geom_point(size = 0.2) +
+  geom_smooth(method = "lm", se = FALSE) +
+  facet_wrap(~name + time + stim, scales = "free", nrow = 2) +
+  labs(y = "Average expression") +
+  theme_classic()
+save_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL", paste0(tar_feature, "_TF.coexpression.single_cell.300BCG.pdf"))
+ggsave(save_to, plot = p, width = 6, height = 6)
 
 
 #
 ## Estimate the gene expression of target genes in COVID-19 context
 #
-pbmc_file <- "/vol/projects/BIIM/Covid_50MHH/NubesSubmission/scRNA/PBMC_scRNAseq.rds"
-if (!file.exists(pbmc_file)) {
-  stop("The Seurat object of MHH50 PBMC study is not available, please contact the author to get it.")
-} else {
+pbmc_file <- file.path(proj_dir, "outputs/COVID_MHH50/PBMC_scRNAseq.rds")
+if (file.exists(pbmc_file)) {
   mhh50 <- readRDS(pbmc_file)
+} else {
+  mhh50 <- readRDS("/vol/projects/BIIM/Covid_50MHH/NubesSubmission/scRNA/PBMC_scRNAseq.rds")
+  mhh50$Disease <- c("Active" = "Hospitalized", "Convalescent" = "Convalescent")[mhh50$Disease] %>% factor(levels = c("Convalescent", "Hospitalized"))
+
+  # bcftools query -H -f '%CHROM,%POS,%ID,%REF,%ALT[,%DS]\n' -i 'ID=="rs11080327"' /vol/projects/BIIM/Covid_50MHH/ASoC/outputs/genotypes/variants_fl_addFI.vcf.gz > ~/Documents/projects/wp_bcg_eqtl/outputs/pseudo_bulk/example_eQTL/rs11080327_mhh50_genotype_DS.csv
+  map_tab <- fread("/vol/projects/zzhang/projects/wp_covid19_mhh50/inputs/idmapping/id_mapping.txt")
+  gt_order <- c("GG", "GA", "AA")
+  gt_per_ind <- fread(file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/rs11080327_mhh50_genotype_GT.csv")) %>%
+    dplyr::rename_with(.fn = ~ stringr::str_remove_all(.x, "\\[[0-9]{1,2}\\]|:GT$|^# ")) %>%
+    tidyr::pivot_longer(-c(CHROM, POS, ID, REF, ALT), values_to = "GT_01", names_to = "ids") %>%
+    dplyr::mutate(GT_RA = dplyr::case_when(GT_01 %in% c("0|0") ~ paste0(REF, REF), GT_01 %in% c("1|0", "0|1") ~ paste0(REF, ALT), GT_01 %in% c("1|1") ~ paste0(ALT, ALT))) %>%
+    dplyr::select(ID, CHROM, POS, REF, ALT, GT_RA, ids) %>%
+    tidyr::pivot_wider(names_from = c(ID, CHROM, POS, REF, ALT), values_from = GT_RA) %>%
+    dplyr::left_join(map_tab, by = c("ids" = "genoID")) %>%
+    dplyr::select(patientID, dplyr::starts_with("rs"))
+
+  ds_per_ind <- fread(file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/rs11080327_mhh50_genotype_DS.csv")) %>%
+    dplyr::rename_with(.fn = ~ stringr::str_remove_all(.x, "\\[[0-9]{1,2}\\]|:DS$|^# ")) %>%
+    tidyr::pivot_longer(-c(CHROM, POS, ID, REF, ALT), values_to = "GT_DS", names_to = "ids") %>%
+    dplyr::select(ID, CHROM, POS, REF, ALT, GT_DS, ids) %>%
+    tidyr::pivot_wider(names_from = c(ID, CHROM, POS, REF, ALT), values_from = GT_DS) %>%
+    dplyr::left_join(map_tab, by = c("ids" = "genoID")) %>%
+    dplyr::select(patientID, dplyr::starts_with("rs"))
+
+  new_meta_data <- mhh50@meta.data %>%
+    dplyr::left_join(gt_per_ind, by = c("patient" = "patientID")) %>%
+    dplyr::left_join(ds_per_ind, by = c("patient" = "patientID"), suffix = c(".gt", ".ds"))
+
+  # Genotype. Hospitalized and convalescent
+  mhh50$gt_pc_2c <- new_meta_data %>%
+    dplyr::mutate(gt_pc = paste(Disease, rs11080327_17_35244527_G_A.gt, sep = "_")) %>%
+    dplyr::pull(gt_pc, cellbarcodes) %>%
+    factor(levels = c(paste0("Hospitalized_", gt_order), paste0("Convalescent_", gt_order)))
+
+  # Genotype. Mild, severe, and convalescent
+  mhh50$gt_pc_3c <- new_meta_data %>%
+    dplyr::mutate(gt_pc = paste(Severity, rs11080327_17_35244527_G_A.gt, sep = "_")) %>%
+    dplyr::pull(gt_pc, cellbarcodes) %>%
+    factor(levels = c(paste0("severe_", gt_order), paste0("mild_", gt_order), paste0("post_", gt_order)))
+
+  # Dosage
+  mhh50$ds_pc <- new_meta_data %>% dplyr::pull(rs11080327_17_35244527_G_A.ds, cellbarcodes)
+
+  saveRDS(mhh50, pbmc_file)
 }
 
-# bcftools query -H -f '%CHROM,%POS,%ID,%REF,%ALT[,%DS]\n' -i 'ID=="rs11080327"' /vol/projects/BIIM/Covid_50MHH/ASoC/outputs/genotypes/variants_fl_addFI.vcf.gz > ~/Documents/projects/wp_bcg_eqtl/outputs/pseudo_bulk/example_eQTL/rs11080327_mhh50_genotype_DS.csv
-map_tab <- fread("/vol/projects/zzhang/projects/wp_covid19_mhh50/inputs/idmapping/id_mapping.txt")
-genotype_tab <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/rs11080327_mhh50_genotype.csv") %>%
-  fread() %>%
-  dplyr::rename_with(.fn = ~ stringr::str_remove_all(.x, "\\[[0-9]{1,2}\\]|:GT$|^# "))
 
-gt_per_ind <- genotype_tab %>%
-  tidyr::pivot_longer(-c(CHROM, POS, ID, REF, ALT), values_to = "GT_01", names_to = "ids") %>%
-  dplyr::mutate(GT_RA = dplyr::case_when(
-    GT_01 %in% c("0|0") ~ paste0(REF, REF),
-    GT_01 %in% c("1|0", "0|1") ~ paste0(REF, ALT),
-    GT_01 %in% c("1|1") ~ paste0(ALT, ALT)
-  )) %>%
-  dplyr::select(ID, CHROM, POS, REF, ALT, GT_RA, ids) %>%
-  tidyr::pivot_wider(names_from = c(ID, CHROM, POS, REF, ALT), values_from = GT_RA) %>%
-  dplyr::left_join(map_tab, by = c("ids" = "genoID")) %>%
-  dplyr::select(patientID, dplyr::starts_with("rs"))
+# Differential expression analysis between conditions, i.e., hospitalized vs convalescent
+save_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/MHH50.two_classes.SLFN5.de_gene.by_condition.csv")
+if (!file.exists(save_to)) {
+  mhh50_deg <- NULL
+  for (pct in unique(mhh50$celltypeL1)) {
+    if (pct %in% c("Plasmablast")) next
 
-genotype_ds_tab <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/rs11080327_mhh50_genotype_DS.csv") %>%
-  fread() %>%
-  dplyr::rename_with(.fn = ~ stringr::str_remove_all(.x, "\\[[0-9]{1,2}\\]|:DS$|^# "))
-ds_per_ind <- genotype_ds_tab %>%
-  tidyr::pivot_longer(-c(CHROM, POS, ID, REF, ALT), values_to = "GT_DS", names_to = "ids") %>%
-  dplyr::select(ID, CHROM, POS, REF, ALT, GT_DS, ids) %>%
-  tidyr::pivot_wider(names_from = c(ID, CHROM, POS, REF, ALT), values_from = GT_DS) %>%
-  dplyr::left_join(map_tab, by = c("ids" = "genoID")) %>%
-  dplyr::select(patientID, dplyr::starts_with("rs"))
+    mhh50_subset <- mhh50["SLFN5", mhh50$celltypeL1 == pct]
+    Idents(mhh50_subset) <- "Disease"
 
-new_meta_data <- mhh50@meta.data %>%
-  dplyr::left_join(gt_per_ind, by = c("patient" = "patientID")) %>%
-  dplyr::left_join(ds_per_ind, by = c("patient" = "patientID"))
+    mhh50_deg <- FindMarkers(mhh50_subset, ident.1 = "Hospitalized", ident.2 = "Convalescent", logfc.threshold = 0.01) %>%
+      dplyr::mutate(Gene = rownames(.), Comparison = "hospitalized.vs.convalescent", Cohort = "MHH50", Celltype = pct) %>%
+      rbind(mhh50_deg)
+  }
+  mhh50_deg %>% dplyr::mutate(p_val_adj = p.adjust(p_val)) %>% data.table::fwrite(save_to)
 
-# Active and convalescent
-gt_meta_data <- new_meta_data %>%
-  dplyr::mutate(genotype_per_condition = paste(Disease, rs11080327_17_35244527_G_A.x, sep = "_")) %>%
-  dplyr::pull(genotype_per_condition, cellbarcodes)
-mhh50 <- AddMetaData(mhh50, gt_meta_data, "genotype_per_condition_2")
-mhh50@meta.data$genotype_per_condition_2 <- factor(
-  mhh50@meta.data$genotype_per_condition_2, levels = c("Active_GG", "Active_GA", "Active_AA", "Convalescent_GG", "Convalescent_GA", "Convalescent_AA")
-)
+  Idents(mhh50) <- "celltypeL1"
 
-# Mild, severe, and convalescent
-gt_meta_data_3 <- new_meta_data %>%
-  dplyr::mutate(genotype_per_condition = paste(Severity, rs11080327_17_35244527_G_A.x, sep = "_")) %>%
-  dplyr::pull(genotype_per_condition, cellbarcodes)
-mhh50 <- AddMetaData(mhh50, gt_meta_data_3, "genotype_per_condition_3")
-mhh50@meta.data$genotype_per_condition_3 <- factor(
-  mhh50@meta.data$genotype_per_condition_3, levels = c(paste0("severe_", c("GG", "GA", "AA")), paste0("mild_", c("GG", "GA", "AA")), paste0("post_", c("GG", "GA", "AA")))
-)
+  # Per condition
+  p <- DotPlot(mhh50, features = "SLFN5", group.by = "Disease", cols = "RdBu", idents = c("CD4.T")) +
+    scale_size(range = c(6, 12), breaks = c(32, 32.5, 33)) +
+    labs(x = NULL, y = NULL) +
+    theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+  p_save_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/MHH50.two_classes.SLFN5.de_gene.CD4T.dot_plot.pdf")
+  ggsave(p_save_to, plot = p, width = 4.25, height = 3.25)
 
-ds_meta_data <- new_meta_data %>%
-  dplyr::pull(rs11080327_17_35244527_G_A.y, cellbarcodes)
-mhh50 <- AddMetaData(mhh50, ds_meta_data, "dosage_per_condition")
+  p <- VlnPlot(mhh50, features = "SLFN5", split.by = "Disease", idents = c("CD4.T"), pt.size = 0) +
+    labs(x = NULL, y = NULL, title = NULL) +
+    scale_fill_manual(values = c("Convalescent" = "#1f78b4", "Hospitalized" = "#e31a1c")) +
+    theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) +
+    coord_flip()
+  p_save_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/MHH50.two_classes.SLFN5.de_gene.CD4T.violin_plot.pdf")
+  ggsave(p_save_to, plot = p, width = 5, height = 3.5)
 
+  p <- FeaturePlot(mhh50, features = "SLFN5", split.by = "Disease", order = TRUE) + patchwork::plot_layout(ncol = 1, nrow = 2)
+  p_save_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/MHH50.two_classes.SLFN5.de_gene.CD4T.feature_plot.pdf")
+  ggsave(p_save_to, plot = p, width = 4, height = 8)
 
-# Differential expression analysis between conditions.
-mhh50_deg <- NULL
-for (pct in unique(mhh50$celltypeL1)) {
-  if (pct %in% c("Plasmablast")) next
+  # Per genotype per condition
+  p <- DotPlot(mhh50, features = "SLFN5", group.by = "gt_pc_2c", cols = "RdBu", idents = c("CD4.T")) +
+    scale_size(range = c(6, 12), breaks = c(30, 34, 38)) +
+    labs(x = NULL, y = NULL) +
+    theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+  p_save_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/MHH50.two_classes.SLFN5.de_gene.per_gt.CD4T.dot_plot.pdf")
+  ggsave(p_save_to, plot = p, width = 4.5, height = 3)
 
-  mhh50_subset <- mhh50["SLFN5", mhh50$celltypeL1 == pct]
-  Idents(mhh50_subset) <- "Disease"
+  p <- VlnPlot(mhh50, features = "SLFN5", split.by = "gt_pc_2c", idents = c("CD4.T"), pt.size = 0) +
+    labs(x = NULL, y = NULL, title = NULL) +
+    scale_fill_manual(values = c("Convalescent_GG" = "white", "Convalescent_GA" = "gray", "Convalescent_AA" = "black",
+                                 "Hospitalized_GG" = "white", "Hospitalized_GA" = "gray", "Hospitalized_AA" = "black")) +
+    theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) +
+    coord_flip()
+  p_save_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/MHH50.two_classes.SLFN5.de_gene.per_gt.CD4T.violin_plot.pdf")
+  ggsave(p_save_to, plot = p, width = 5.5, height = 4)
 
-  cat("Estimating DE", pct, "\n")
-  mhh50_deg <- FindMarkers(mhh50_subset, ident.1 = "Active", ident.2 = "Convalescent", logfc.threshold = 0.01) %>%
-    dplyr::mutate(Gene = rownames(.), Comparison = "hospitalized.vs.convalescent", Cohort = "MHH50", Celltype = pct) %>%
-    rbind(mhh50_deg)
+  p <- FeaturePlot(mhh50, features = "SLFN5", split.by = "gt_pc_2c", order = TRUE) + patchwork::plot_layout(ncol = 3, nrow = 2)
+  p_save_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/MHH50.two_classes.SLFN5.de_gene.per_gt.CD4T.feature_plot.pdf")
+  ggsave(p_save_to, plot = p, width = 4, height = 8)
 }
-mhh50_deg %>%
-  dplyr::mutate(p_val_adj = p.adjust(p_val)) %>%
-  data.table::fwrite(file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/SLFN5.differential_expression.MHH50.two_classes.csv"))
+
 
 
 # Differential expression genes between groups of patients with different genotypes.
-mhh50_deg <- NULL
-for (pct in unique(mhh50$celltypeL1)) {
-  if (pct %in% c("Plasmablast", "ncMono", "pDC", "mDC")) next
-
-  mhh50_subset <- mhh50["SLFN5", mhh50$celltypeL1 == pct]
-  Idents(mhh50_subset) <- "Severity"
-
-  cat("Estimating DE", pct, "\n")
-  pairs <- combn(c("severe", "mild", "post"), 2)
-  for (pp in 1:ncol(pairs)) {
-    ident_1 <- pairs[1, pp]
-    ident_2 <- pairs[2, pp]
-    mhh50_deg <- FindMarkers(mhh50_subset, ident.1 = ident_1, ident.2 = ident_2, logfc.threshold = 0.01) %>%
-      dplyr::mutate(Gene = rownames(.), Comparison = paste0(ident_1, ".vs.", ident_2), Cohort = "MHH50", Celltype = pct) %>%
-      rbind(mhh50_deg)
-  }
-}
 save_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/SLFN5.deg_by_sevrity.MHH50.three_classes.csv")
-mhh50_slfn_deg <- mhh50_slfn_deg %>% as.data.table() %>% dplyr::mutate(p_val_adj = p.adjust(p_val), Celltype = dplyr::if_else(Celltype == "merged.cMonos", "Mono", Celltype))
-fwrite(mhh50_slfn_deg, save_to)
+if (!file.exists(save_to)) {
+  mhh50_deg <- NULL
+  for (pct in unique(mhh50$celltypeL1)) {
+    if (pct %in% c("Plasmablast", "ncMono", "pDC", "mDC")) next
+
+    mhh50_subset <- mhh50["SLFN5", mhh50$celltypeL1 == pct]
+    Idents(mhh50_subset) <- "Severity"
+
+    cat("Estimating DE", pct, "\n")
+    pairs <- combn(c("severe", "mild", "post"), 2)
+    for (pp in 1:ncol(pairs)) {
+      ident_1 <- pairs[1, pp]
+      ident_2 <- pairs[2, pp]
+      mhh50_deg <- FindMarkers(mhh50_subset, ident.1 = ident_1, ident.2 = ident_2, logfc.threshold = 0.01) %>%
+        dplyr::mutate(Gene = rownames(.), Comparison = paste0(ident_1, ".vs.", ident_2), Cohort = "MHH50", Celltype = pct) %>%
+        rbind(mhh50_deg)
+    }
+  }
+  mhh50_slfn_deg <- mhh50_slfn_deg %>% as.data.table() %>% dplyr::mutate(p_val_adj = p.adjust(p_val), Celltype = dplyr::if_else(Celltype == "merged.cMonos", "Mono", Celltype))
+  fwrite(mhh50_slfn_deg, save_to)
+}
 
 # Used in the results.
 mhh50_slfn_deg <- NULL
 for (pct in unique(mhh50$celltypeL1)) {
   if (pct %in% c("Plasmablast", "ncMono", "pDC", "mDC")) next
 
-  for (psv in c("Active", "Convalescent")) {
+  for (psv in c("Hospitalized", "Convalescent")) {
     mhh50_subset <- mhh50[, mhh50$celltypeL1 == pct & mhh50$Disease == psv]
 
-    Idents(mhh50_subset) <- "genotype_per_condition_2"
+    Idents(mhh50_subset) <- "gt_pc_2c"
     cat("Estimating DE", pct, psv, "\n")
 
-    pairs <- combn(sort(unique(mhh50_subset$genotype_per_condition_2)), 2)
+    pairs <- combn(sort(unique(mhh50_subset$gt_pc_2c)), 2)
     for (pp in 1:ncol(pairs)){
       ident_1 <- pairs[1, pp]
       ident_2 <- pairs[2, pp]
@@ -1049,33 +1225,29 @@ fwrite(mhh50_slfn_deg, save_to)
 
 
 # Differential expression analysis between conditions.
-# mhh50_slfn_deg <- NULL
-# for (pct in unique(mhh50$celltypeL1)) {
-#   if (pct %in% c("Plasmablast", "ncMono", "pDC", "mDC")) next
-# 
-#   for (psv in c("severe", "mild", "post")) {
-#     mhh50_subset <- mhh50[, mhh50$celltypeL1 == pct & mhh50$Severity == psv]
-# 
-#     Idents(mhh50_subset) <- "genotype_per_condition_3"
-#     cat("Estimating DE", pct, psv, "\n")
-# 
-#     pairs <- combn(sort(unique(mhh50_subset$genotype_per_condition_3)), 2)
-#     for (pp in 1:ncol(pairs)){
-#       ident_1 <- pairs[1, pp]
-#       ident_2 <- pairs[2, pp]
-#       mhh50_slfn_deg <- FindMarkers(mhh50_subset, ident.1 = ident_1, ident.2 = ident_2, features = c("SLFN5"), logfc.threshold = 0, test.use = "LR", latent.vars = c("gender", "Age")) %>%
-#         dplyr::mutate(Gene = "SLFN5", Comparison = paste0(ident_1, ".vs.", ident_2), Cohort = "MHH50", Celltype = pct, Test = "LR_adj_age_sex") %>%
-#         rbind(mhh50_slfn_deg)
-#     }
-#   }
-# }
-# save_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/SLFN5.deg_by_genotype.MHH50.three_classes.csv")
-# mhh50_slfn_deg <- mhh50_slfn_deg %>% as.data.table() %>% dplyr::mutate(p_val_adj = p.adjust(p_val), Celltype = dplyr::if_else(Celltype == "merged.cMonos", "Mono", Celltype))
-# fwrite(mhh50_slfn_deg, save_to)
+mhh50_slfn_deg <- NULL
+for (pct in unique(mhh50$celltypeL1)) {
+  if (pct %in% c("Plasmablast", "ncMono", "pDC", "mDC")) next
 
+  for (psv in c("severe", "mild", "post")) {
+    mhh50_subset <- mhh50[, mhh50$celltypeL1 == pct & mhh50$Severity == psv]
 
+    Idents(mhh50_subset) <- "gt_pc_3c"
+    cat("Estimating DE", pct, psv, "\n")
 
-
+    pairs <- combn(sort(unique(mhh50_subset$gt_pc_3c)), 2)
+    for (pp in 1:ncol(pairs)){
+      ident_1 <- pairs[1, pp]
+      ident_2 <- pairs[2, pp]
+      mhh50_slfn_deg <- FindMarkers(mhh50_subset, ident.1 = ident_1, ident.2 = ident_2, features = c("SLFN5"), logfc.threshold = 0, test.use = "LR", latent.vars = c("gender", "Age")) %>%
+        dplyr::mutate(Gene = "SLFN5", Comparison = paste0(ident_1, ".vs.", ident_2), Cohort = "MHH50", Celltype = pct, Test = "LR_adj_age_sex") %>%
+        rbind(mhh50_slfn_deg)
+    }
+  }
+}
+save_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/SLFN5.deg_by_genotype.MHH50.three_classes.csv")
+mhh50_slfn_deg <- mhh50_slfn_deg %>% as.data.table() %>% dplyr::mutate(p_val_adj = p.adjust(p_val), Celltype = dplyr::if_else(Celltype == "merged.cMonos", "Mono", Celltype))
+fwrite(mhh50_slfn_deg, save_to)
 
 rownames(mhh50_deg) <- NULL
 mhh50_deg <- mhh50_deg %>% dplyr::mutate(p_val_adj = p.adjust(p_val), Celltype = dplyr::if_else(Celltype == "merged.cMonos", "Mono", Celltype))
@@ -1095,7 +1267,7 @@ save_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/SLFN5.different
 ggsave(save_to, plot = p, height = 2.5, width = 5)
 
 
-group_by_col <- "genotype_per_condition_3"
+group_by_col <- "gt_pc_3c"
 dp_1 <- DotPlot(mhh50, feature = "SLFN5", idents = c("CD4.T"), group.by = group_by_col) +
   labs(x = "CD4.T") +
   labs(y = NULL, title = NULL) +
@@ -1129,7 +1301,7 @@ ggsave(file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/SLFN5_expression_pe
 
 # eQTL effect pseudobulk
 avg_exp_tab <- mhh50["SLFN5", ] %>%
-  AverageExpression(assays = "RNA", group.by = c("patient", "genotype_per_condition_2", "celltypeL1")) %>%
+  AverageExpression(assays = "RNA", group.by = c("patient", "gt_pc_2c", "celltypeL1")) %>%
   as.data.frame() %>%
   tidyr::pivot_longer(cols = tidyr::everything()) %>%
   tidyr::separate(name, into = c("patient", "condition", "genotype", "celltype"), sep = "_") %>%
@@ -1137,7 +1309,7 @@ avg_exp_tab <- mhh50["SLFN5", ] %>%
   dplyr::mutate(genotype = factor(genotype, levels = c("GG", "GA", "AA"))) %>%
   dplyr::mutate(celltype = dplyr::if_else(celltype == "merged.cMonos", "cMono", celltype)) %>%
   dplyr::mutate(celltype = factor(celltype, levels = c("cMono", "CD4.T", "CD8.T", "NK", "B"))) %>%
-  dplyr::mutate(condition = dplyr::if_else(condition == "Active", "Hospitalized", condition)) %>%
+  dplyr::mutate(condition = dplyr::if_else(condition == "Hospitalized", "Hospitalized", condition)) %>%
   dplyr::mutate(patient = stringr::str_remove(patient, "RNA."))
 
 qtl_effect <- mhh50@meta.data %>%
@@ -1199,7 +1371,7 @@ eqtl_effect %>% fwrite(file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/SLF
 
 
 #
-## Estimate the chromatin accessibility
+## Estimate the chromatin accessibility, have to activate the ArchR conda environment.
 #
 setwd(file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/"))
 archr_proj_path <- file.path(proj_dir, "outputs/COVID_MHH50/PBMC_scATACseq")
@@ -1213,11 +1385,9 @@ if (FALSE) {
 feature_list <- tribble(
   ~feature_id, ~chrom, ~start, ~end,
   # "CD55", "chr1", 207321507, 207321508,
-  # "KANSL1", "chr17", 46029916, 46225389,
-  "SLFN5", "chr17", 35243071, 35266360,
   # "ADCY3", "chr2", 24919838, 24919839,
+  "SLFN5", "chr17", 35243071, 35266360,
 )
-
 
 subproj <- getCellColData(proj) %>%
   as.data.frame() %>%
@@ -1229,18 +1399,26 @@ new_group <- getCellColData(subproj)$cell.cond %>%
   stringr::str_replace("post", "Convalescent")
 subproj <- addCellColData(subproj, data = new_group, name = "cell.condition_2", cells = rownames(getCellColData(subproj)))
 
-
 # Subset the p2g links that linked to SLFN5 TSS
 tar_feature <- "SLFN5"
-p2g_links <- getPeak2GeneLinks(proj, resolution = 1, FDRCutOff = 0.05, corCutOff = 0.1)
+p2g_links <- getPeak2GeneLinks(proj, resolution = 1, FDRCutOff = 0.05, corCutOff = 0.35)
 
-p <- plotBrowserTrack(ArchRProj = subproj, groupBy = "cell.condition_2", geneSymbol = tar_feature, upstream = 4000, sizes = c(7, 0.5, 2, 1), ylim = c(0, 0.999), downstream = 4000, loops = p2g_links, facetbaseSize = 11, baseSize = 11)
+set.seed(31415926)
+# CD4T
+p <- plotBrowserTrack(
+  ArchRProj = subproj, groupBy = "cell.condition_2", useGroups = c("CD4 T.Hospitalized", "CD4 T.Convalescent"),
+  geneSymbol = tar_feature, upstream = 3500, downstream = 3500, sizes = c(5, 0.5, 1.5, 1), loops = p2g_links
+)
+save_to <- paste0("Plot-Tracks-", tar_feature, "-with-Peak2GeneLinks.per_condition.CD4T.v3.pdf")
+plotPDF(plotList = p, name = save_to, ArchRProj = proj, addDOC = FALSE, width = 6, height = 4)
+
+# All cell types
+p <- plotBrowserTrack(
+  ArchRProj = subproj, groupBy = "cell.condition_2",
+  geneSymbol = tar_feature, upstream = 3500, downstream = 3500, sizes = c(5, 0.5, 1.5, 1), loops = p2g_links
+)
 save_to <- paste0("Plot-Tracks-", tar_feature, "-with-Peak2GeneLinks.per_condition.v3.pdf")
-plotPDF(plotList = p, name = save_to, ArchRProj = proj, addDOC = FALSE, width = 8, height = 7)
-
-p <- plotBrowserTrack(ArchRProj = subproj, groupBy = "Clusters2", geneSymbol = tar_feature, upstream = -150000, sizes = c(3.5, 0.35, 1.45, 0.55), ylim = c(0, 0.9875), downstream = 150000, loops = p2g_links)
-save_to <- paste0("Plot-Tracks-", tar_feature, "-with-Peak2GeneLinks.per_celltype.v3.pdf")
-plotPDF(plotList = p, name = save_to, ArchRProj = proj, addDOC = FALSE, width = 8, height = 4)
+plotPDF(plotList = p, name = save_to, ArchRProj = proj, addDOC = FALSE, width = 6, height = 4)
 
 
 # Peaks
@@ -1264,75 +1442,119 @@ getPeak2GeneLinks(proj, resolution = 1, FDRCutOff = 0.05, corCutOff = 0.1) %>%
 
 # Peaks in SLFN5 locus
 tar_range <- GRanges(seqnames = "chr17", ranges = IRanges(start = 35228071, end = 35266360))
-all_peak_matches <- getMatches(proj)
-tar_peak_matches <- all_peak_matches[overlapsAny(all_peak_matches, tar_range) & rownames(all_peak_matches) %in% c("CD4 T", "CD8 T", "cMono", "NK", "B"), ]
-annotated_peaks <- tar_peak_matches@assays$data %>%
-  as.data.frame() %>%
-  dplyr::mutate(index = dplyr::row_number()) %>%
-  tidyr::pivot_longer(-c(group, group_name, index)) %>%
-  dplyr::filter(value) %>%
-  dplyr::arrange(name, index) %>%
-  dplyr::group_by(name) %>%
-  dplyr::reframe(tp = as.data.frame(rowData(tar_peak_matches)[dplyr::cur_data()$index, ])) %>%
-  tidyr::unnest(tp) %>%
-  as.data.frame() %>%
-  dplyr::group_by(idx) %>%
-  dplyr::mutate(tf_motifs = paste(name, collapse = "|")) %>%
-  dplyr::select(-name) %>%
-  dplyr::distinct()
+save_to <- file.path(proj_dir, "outputs/COVID_MHH50/PBMC_scATACseq/Plots/peaks.annotated.SLFN5.csv")
+if (!file.exists(save_to)) {
+  all_peak_matches <- getMatches(proj)
+  tar_peak_matches <- all_peak_matches[overlapsAny(all_peak_matches, tar_range) & rownames(all_peak_matches) %in% c("CD4 T", "CD8 T", "cMono", "NK", "B"), ]
+  annotated_peaks <- tar_peak_matches@assays$data %>%
+    as.data.frame() %>%
+    dplyr::mutate(index = dplyr::row_number()) %>%
+    tidyr::pivot_longer(-c(group, group_name, index)) %>%
+    dplyr::filter(value) %>%
+    dplyr::arrange(name, index) %>%
+    dplyr::group_by(name) %>%
+    dplyr::reframe(tp = as.data.frame(rowData(tar_peak_matches)[dplyr::cur_data()$index, ])) %>%
+    tidyr::unnest(tp) %>%
+    as.data.frame() %>%
+    dplyr::group_by(idx) %>%
+    dplyr::mutate(tf_motifs = paste(name, collapse = "|")) %>%
+    dplyr::select(-name) %>%
+    dplyr::distinct()
 
-data.table::fwrite(annotated_peaks, file.path(proj_dir, "outputs/COVID_MHH50/PBMC_scATACseq/Plots/peaks.annotated.SLFN5.csv"))
+  data.table::fwrite(annotated_peaks, save_to)
+}
 
 # Coexpression between TFs and SLFN5
-coexp_features <- dplyr::pull(annotated_peaks, tf_motifs) %>%
-  stringr::str_split(pattern = "\\|", simplify = TRUE) %>%
-  stringr::str_extract(pattern = "([0-9A-Z]+)") %>%
-  purrr::discard(~is.na(.x)) %>%
-  unique() %>%
-  c("SLFN5")
+# The target TFs are those that prioritized using ASB database above.
+tar_feature <- "SLFN5"
 
+save_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/SLFN5_TF.coexpression.all_conditions.single_cell.MHH50.csv")
+if (!file.exists(save_to)) {
 cor_test_tab <- mhh50@meta.data %>%
-  dplyr::mutate(cell_barcode = rownames(.)) %>%
   dplyr::filter(celltypeL1 %in% c("merged.cMonos", "CD4.T", "CD8.T", "NK", "B")) %>%
+  dplyr::mutate(cell_barcode = rownames(.)) %>%
   dplyr::group_by(celltypeL1, Disease) %>%
   dplyr::summarise(n = n()) %>%
   as.data.frame() %>%
   apply(1, function(vec) {
     per_cluster <- vec[1]
-    per_condition <- vec[2]
+    per_cond <- vec[2]
+    cat(per_cluster, per_cond, "\n")
 
-    tar_cells <- mhh50@meta.data %>% as.data.frame() %>% dplyr::filter(celltypeL1 == per_cluster, Disease == per_condition) %>% rownames()
+    tar_cells <- mhh50@meta.data %>% as.data.frame() %>% dplyr::filter(celltypeL1 == per_cluster, Disease == per_cond) %>% rownames()
     sub_pbmc <- mhh50[coexp_features, tar_cells]
 
-    meta_tab <- sub_pbmc@meta.data %>% as.data.frame()
+    keta_tab <- sub_pbmc@meta.data %>% as.data.frame()
     expr_tab <- sub_pbmc@assays$RNA@data %>% as.data.frame() %>% t()
     regr_tab <- cbind(meta_tab, expr_tab)
 
     regr_res <- NULL
     for (per_tf in coexp_features) {
-      if (per_tf == "SLFN5") next
-      if (!(per_tf %in% colnames(regr_tab))) next
+      if (per_tf == tar_feature) next
 
-      fml <- formula(stringr::str_glue("SLFN5 ~ {per_tf} + ({per_tf} | patient) + gender"))
+      fml <- formula(stringr::str_glue("{tar_feature} ~ {per_tf} + ({per_tf} | patient) + Age + gender"))
       regr_res <- tryCatch(
         expr = summary(lmer(fml, regr_tab))$coefficients %>% as.data.frame() %>% dplyr::mutate(param = rownames(.)) %>% rbind(regr_res),
-        error = function(e) {print(e); NULL}
+        error = function(e) NULL
       )
     }
-    if (is.null(regr_res)) {
-      return(NA)
-    } else {
-      rownames(regr_res) <- NULL
-      dplyr::mutate(regr_res, celltype = per_cluster, condition = per_condition)
-    }
+    rownames(regr_res) <- NULL
+    dplyr::mutate(regr_res, celltype = per_cluster, disease = per_cond)
   }) %>%
   Reduce(rbind, .) %>%
-  dplyr::select(dplyr::all_of(c("beta" = "Estimate", "beta_se" = "Std. Error", "t_statistic" = "t value", "p_value" = "Pr(>|t|)", "param", "celltype", "condition"))) %>%
+  dplyr::select(dplyr::all_of(c("beta" = "Estimate", "beta_se" = "Std. Error", "t_statistic" = "t value", "p_value" = "Pr(>|t|)", "param", "celltype", "disease"))) %>%
   dplyr::filter(param %in% coexp_features) %>%
   dplyr::mutate(p_value_adj_fdr = p.adjust(p_value, method = "fdr"))
 
-save_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/SLFN5_TF.coexpression.all_conditions.single_cell.MHH50.csv")
-fwrite(cor_test_tab, save_to)
+  fwrite(cor_test_tab, save_to)
+} else {
+  cor_test_tab <- fread(save_to)
+}
+
+
+if (!file.exists(save_to)) {
+  cor_test_tab <- mhh50@meta.data %>%
+    dplyr::mutate(cell_barcode = rownames(.)) %>%
+    dplyr::filter(celltypeL1 %in% c("merged.cMonos", "CD4.T", "CD8.T", "NK", "B")) %>%
+    dplyr::group_by(celltypeL1, Disease) %>%
+    dplyr::summarise(n = n()) %>%
+    as.data.frame() %>%
+    apply(1, function(vec) {
+      per_cluster <- vec[1]
+      per_condition <- vec[2]
+
+      tar_cells <- mhh50@meta.data %>% as.data.frame() %>% dplyr::filter(celltypeL1 == per_cluster, Disease == per_condition) %>% rownames()
+      sub_pbmc <- mhh50[coexp_features, tar_cells]
+
+      meta_tab <- sub_pbmc@meta.data %>% as.data.frame()
+      expr_tab <- sub_pbmc@assays$RNA@data %>% as.data.frame() %>% t()
+      regr_tab <- cbind(meta_tab, expr_tab)
+
+      regr_res <- NULL
+      for (per_tf in coexp_features) {
+        if (per_tf == "SLFN5") next
+        if (!(per_tf %in% colnames(regr_tab))) next
+
+        fml <- formula(stringr::str_glue("SLFN5 ~ {per_tf} + ({per_tf} | patient) + gender"))
+        regr_res <- tryCatch(
+          expr = summary(lmer(fml, regr_tab))$coefficients %>% as.data.frame() %>% dplyr::mutate(param = rownames(.)) %>% rbind(regr_res),
+          error = function(e) {print(e); NULL}
+        )
+      }
+      if (is.null(regr_res)) {
+        return(NA)
+      } else {
+        rownames(regr_res) <- NULL
+        dplyr::mutate(regr_res, celltype = per_cluster, condition = per_condition)
+      }
+    }) %>%
+    Reduce(rbind, .) %>%
+    dplyr::select(dplyr::all_of(c("beta" = "Estimate", "beta_se" = "Std. Error", "t_statistic" = "t value", "p_value" = "Pr(>|t|)", "param", "celltype", "condition"))) %>%
+    dplyr::filter(param %in% coexp_features) %>%
+    dplyr::mutate(p_value_adj_fdr = p.adjust(p_value, method = "fdr"))
+
+  fwrite(cor_test_tab, save_to)
+}
 
 plot_tab <- cor_test_tab %>%
   dplyr::filter(celltype == "CD4.T") %>%
@@ -1340,8 +1562,7 @@ plot_tab <- cor_test_tab %>%
     p_value_adj_fdr_log10 = -log10(p_value_adj_fdr),
     p_value_log10 = -log10(p_value),
     Correlation = dplyr::if_else(t_statistic > 0, "Pos", "Neg"),
-    Correlation = factor(Correlation, levels = c("Neg", "Pos")),
-    condition = dplyr::if_else(condition == "Active", "Hospitalized", "Convalescent")
+    Correlation = factor(Correlation, levels = c("Neg", "Pos"))
   ) %>%
   dplyr::arrange(-p_value_adj_fdr_log10)
 
@@ -1359,3 +1580,29 @@ p <- ggplot() +
 
 save_to <- file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/SLFN5_TF.coexpression.CD4T.all_conditions.single_cell.MHH50.pdf")
 ggsave(save_to, plot = p, width = 7, height = 5)
+
+
+
+# CD55 labwork
+inhibitor <- c("BL", "BL", "BL", "DB1976", "DB1976", "DB1976", "DB1976", "DB1976", "DB1976", "DB2313", "DB2313", "DB2313", "DB2313", "DB2313", "DB2313", "Ruxo", "Ruxo", "Ruxo")
+dosage <- c(0, 0, 0, 0.5, 0.5, 0.5, 2, 2, 2, 0.5, 0.5, 0.5, 2, 2, 2, 0, 0, 0)
+mock <- c(1.000, 1.000, 1.000, 1.330, 0.756, 0.677, 0.786, 0.920, 0.694, 1.345, 1.149, 0.797, 1.532, 1.053, 0.897, 2.913, 1.220, 1.052)
+lps <- c(2.096, 7.743, 1.946, 4.884, 3.397, 1.597, 6.689, 4.103, 2.820, 3.053, 1.006, 1.877, 3.382, 2.553, 1.294, 4.709, 2.852, 2.331)
+
+plot_tab <- data.frame(inhibitor = inhibitor, dosage = dosage, Mock = mock, LPS = lps) %>%
+  dplyr::mutate(dosage = factor(dosage, levels = c("0", "0.5", "2"))) %>%
+  tidyr::pivot_longer(cols = c("Mock", "LPS"), names_to = "condition", values_to = "level") %>%
+  dplyr::mutate(condition = factor(condition, c("Mock", "LPS"))) %>%
+  dplyr::filter(inhibitor %in% c("BL", "DB2313"))
+
+p <- plot_tab %>%
+  ggplot(mapping = aes(x = dosage, y = level)) +
+  geom_boxplot() +
+  geom_quasirandom(aes(color = condition), size = 3, alpha = 0.5) +
+  scale_color_jama() +
+  facet_nested(~ condition + inhibitor, scale = "free_x", space="free", nest_line = element_line()) +
+  labs(color = "Condition", x = "Inhibitor dosage", y = "Fold-change") +
+  theme_classic() +
+  theme(strip.background = element_blank())
+
+ggsave(file.path(proj_dir, "outputs/pseudo_bulk/example_eQTL/CD55_labwork.pdf"), plot = p, width = 4.5, height = 3.5)

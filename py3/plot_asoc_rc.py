@@ -254,6 +254,7 @@ def main():
     parser.add_argument("--seqtech", choices=["se", "pe"], default="pe", metavar="[se, pe]", help="Sequencing technology. Not in usage yet.")
     parser.add_argument("--fig-width", type=float, default=6, metavar="FLOAT", help="The width of the figure. Default: %(default)s")
     parser.add_argument("--fig-height", type=float, default=5, metavar="FLOAT", help="The height of the figure. Default: %(default)s")
+    parser.add_argument("--cond-order", nargs="+", default=["Post", "Mild", "Severe"], metavar="STRING", help="The order of conditions. Default: %(default)s")
     parser.add_argument("-o", "--outdir", default="./", metavar="PATH", help="The output directory. Default: %(default)s")
 
     options = parser.parse_args()
@@ -268,6 +269,7 @@ def main():
     discard_celltype = options.discard_celltype
     fig_width = options.fig_width
     fig_height = options.fig_height
+    cond_order = options.cond_order
 
     logging.basicConfig(format="{levelname: ^8}| {asctime} | {message}", style="{", datefmt="%Y%m%d,%H:%M:%S", level=logging.INFO)
 
@@ -277,7 +279,7 @@ def main():
     region_tab = parse_region_file(region_file, sep=",", add_chr=add_chr, bampath=bam_path)
     for snpid in snp_rsids:
         rcpool = fetch_read_counts(snpid, region_tab, flank_len, threads, discard_zero)
-        rcplot = plot_rc(rcpool, figheight=fig_height, figwidth=fig_width)
+        rcplot = plot_rc(rcpool, figheight=fig_height, figwidth=fig_width, cond_order=cond_order)
 
         rcplot.savefig(f"{outdir}/{snpid}_asoc_read_depth.pdf")
 

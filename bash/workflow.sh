@@ -274,7 +274,7 @@ EOF
 asoc_snps_for_rcplot=$proj_dir/outputs/COVID_MHH50/heter-snps_metainfo.two_conditions.csv
 asoc_snps_for_rcplot=$proj_dir/outputs/COVID_MHH50/heter-snps_metainfo.csv
 bamdir=/vol/projects/BIIM/Covid_50MHH/ASoC/outputs/scATAC-seq/run_v1/optdir/bam_pct_asoc/unmerged
-snpid=rs2564978
+# snpid=rs2564978
 snpid=rs11080327
 
 python $proj_dir/scripts/py3/plot_asoc_rc.py -h
@@ -283,8 +283,10 @@ python $proj_dir/scripts/py3/plot_asoc_rc.py \
   -i $snpid \
   -b $bamdir \
   -f 40 \
-  --fig-width 7 \
-  -d Plasmablast pDC ncMono B cMono NK \
+  --fig-width 3 \
+  --fig-height 4 \
+  --cond-order Convalescent Hospitalized \
+  -d Plasmablast pDC ncMono B cMono NK CD8T \
   -o $proj_dir/outputs/pseudo_bulk/example_eQTL
 
 #

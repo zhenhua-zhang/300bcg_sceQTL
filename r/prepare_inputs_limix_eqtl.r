@@ -313,6 +313,7 @@ for (ct in c("Monocytes", "CD4T", "CD8T", "NK", "B", "all")) {
 #
 ## Prepare chunk file, based on the annotation file
 #
+# version 1
 feature_tab %>%
   dplyr::select(chromosome, start, end) %>%
   dplyr::group_by(chromosome) %>%
@@ -339,5 +340,35 @@ feature_tab %>%
   dplyr::select(chunk) %>%
   unique() %>%
   fwrite(file.path(proj_dir, "inputs/chunks_file.txt"), col.names = FALSE)
+
+# version 2
+feature_tab %>%
+  dplyr::select(chromosome, start, end) %>%
+  dplyr::arrange(chromosome, start, end) %>%
+  dplyr::mutate(index = dplyr::row_number()) %>%
+  dplyr::group_by(chromosome) %>%
+  dplyr::summarise(chunk = {
+    min_base <- cur_data()$start %>% min()
+    max_base <- cur_data()$end %>% max()
+
+    n_chunks <- as.integer((max_base - min_base) / chunk_size)
+    cut(start, n_chunks)
+  }) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(chunk = str_remove_all(chunk, "\\(|\\]")) %>%
+  tidyr::separate(chunk, into = c("start", "end"), sep = ",") %>%
+  dplyr::mutate(
+    start = as.integer(start),
+    start = ifelse(start >= 0, start, 0),
+    end = as.integer(end),
+    chunk = paste0(
+      chromosome, ":", format(start, trim = TRUE, scientific = FALSE), "-",
+      format(end, trim = TRUE, scientific = FALSE)
+    )
+  ) %>%
+  dplyr::arrange(chromosome, start, end) %>%
+  dplyr::select(chunk) %>%
+  unique() %>%
+  fwrite(file.path(proj_dir, "inputs/chunks_file_v2.txt"), col.names = FALSE)
 
 # vim: set ai tw=200:
