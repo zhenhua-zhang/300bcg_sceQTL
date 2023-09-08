@@ -1,8 +1,11 @@
 #!/usr/bin/env Rscript
+# File: concordance.r
 # Author: Zhenhua Zhang
 # E-mail: zhenhua.zhang217@gmail.com
-# Created: May 21, 2023
-# Updated: Jul 03, 2023
+# Created: Aug 22, 2023
+# Updated: Aug 22, 2023
+
+# Estimate the concordance
 
 options(stringsAsFactors = FALSE, datatable.verbose = FALSE, datatable.showProgress = FALSE, error = NULL)
 suppressPackageStartupMessages({
@@ -18,14 +21,17 @@ time_vec <- c("T0", "T3m")
 stim_vec <- c("RPMI", "LPS")
 mode_vec <- c("normal", "interaction")
 celltype_vec <- c("Monocytes", "CD4T", "CD8T", "NK", "B")
+condition_vec <- c("T0_LPS", "T0_RPMI", "T3m_LPS", "T3m_RPMI")
 comparison_vec <- c("T0_LPS.vs.T0_RPMI", "T3m_LPS.vs.T3m_RPMI", "T3m_RPMI.vs.T0_RPMI") #, "T3m_LPS.vs.T0_RPMI")
 col_pattern_vec <- c("normal" = "_Common", "interaction" = ".vs.")
 effect_vec <- c("LPS eff. (T0)", "LPS eff. (T3m)", "BCG eff.")
 names(effect_vec) <- comparison_vec
 
+#
+## Replication in eqtlGen, 1M_bloodNL
+#
 overwrite <- FALSE
-save_to <- file.path(proj_dir, "outputs/pseudo_bulk/replication/normal.eqtlgen_gtex.csv")
-final_cols <- c("snp_chromosome", "snp_position", "snp_id", "gene_name", "gene_ensembl_id", "celltype", "BCG.assessed_allele", "BCG.beta", "BCG.p_value", "BCG.q_value", "GTEx.assessed_allele", "GTEx.other_allele", "GTEx.p_value", "GTEx.beta", "eqtlGen.assessed_allele", "eqtlGen.other_allele", "eqtlGen.p_value", "eqtlGen.beta")
+save_to <- file.path(proj_dir, "outputs/pseudo_bulk/replication/normal.eqtlgen.csv")
 if (!file.exists(save_to) || overwrite) {
   eqtl_gen_cols <- c(
     "gene_id" = "Gene", "snp_chrom" = "SNPChr", "snp_pos" = "SNPPos", "snp_id" = "SNP", "assessed_allele" = "AssessedAllele",
@@ -44,19 +50,7 @@ if (!file.exists(save_to) || overwrite) {
     dplyr::filter(condition == "common") %>%
     dplyr::select(dplyr::all_of(eqtl_cols))
 
-  gtex_whbl_cols <- c("gene_id", "snp_chrom", "snp_pos", "snp_id", "assessed_allele", "other_allele", "p_value" = "pval_nominal", "beta" = "slope")
-  pos_to_snp_map <- fread(file.path(proj_dir, "temps/pos_to_rsid.txt")) %>% dplyr::mutate(snp_pos_id = paste0(V1, "_", V2, "_", V3, "_", V4)) %>% dplyr::pull(V5, snp_pos_id)
-  gtex_whbl_tab <- fread("/vol/projects/BIIM/resources/GTEx/v8_eQTL/Whole_Blood.v8.signif_variant_gene_pairs.txt.gz") %>%
-    dplyr::mutate(gene_id = stringr::str_remove_all(gene_id, "\\.[0-9]+$"), variant_id = stringr::str_remove_all(variant_id, "^chr|_b38$")) %>%
-    dplyr::mutate(snp_id = pos_to_snp_map[variant_id]) %>%
-    dplyr::filter(!is.na(snp_id), snp_id != "") %>%
-    tidyr::separate(variant_id, c("snp_chrom", "snp_pos", "assessed_allele", "other_allele"), sep = "_") %>%
-    dplyr::select(dplyr::all_of(gtex_whbl_cols)) %>%
-    dplyr::filter(!snp_chrom %in% c("X", "Y", "MT")) %>%
-    dplyr::mutate(snp_chrom = as.integer(snp_chrom), snp_pos = as.integer(snp_pos))
-
-  comb_tab <- dplyr::left_join(eqtl_tab, eqtl_gen_tab, by = c("gene_id", "snp_id"), suffix = c(".eqtl", "")) %>%
-    dplyr::left_join(gtex_whbl_tab, by = c("gene_id", "snp_id"), suffix = c(".eqtlgen", ".gtex"))
+  comb_tab <- dplyr::left_join(eqtl_tab, eqtl_gen_tab, by = c("gene_id", "snp_id"), suffix = c(".eqtl", ""))
 
   comb_tab %>% data.table::fwrite(save_to)
 } else {
@@ -116,21 +110,18 @@ plot_save_to <- file.path(proj_dir, "outputs/pseudo_bulk/replication/normal.conc
 ggsave(plot_save_to, plot = p, height = 3, width = 12)
 
 
-
-
-# Plotting
+# Replication rate
 plot_tab <- comb_tab %>%
   dplyr::group_by(celltype) %>%
   dplyr::summarise(
     n_total = n(),
     n_rep_either = sum(either.replication %in% c("RF", "RS")),
-    n_rep_gtex = sum(GTEx.replication %in% c("RF", "RS")), n_rep_eqtlgen = sum(eqtlGen.replication %in% c("RF", "RS")),
     rep_ratio = n_rep_either / n_total * 100, rep_ratio_lab = paste0(n_total, " (" , round(rep_ratio, 1), "%)")
   ) %>%
   dplyr::mutate(celltype = forcats::fct_reorder(celltype, n_total, .desc = TRUE))
 
 plot_tab_long <- plot_tab %>%
-  tidyr::pivot_longer(cols = c("n_rep_gtex", "n_rep_eqtlgen"), names_to = "replication", values_to = "n_rep")
+  tidyr::pivot_longer(cols = c("n_rep_eqtlgen"), names_to = "replication", values_to = "n_rep")
 
 p <- ggplot() +
   geom_col(aes(y = celltype, x = n_total), plot_tab, fill = "gray") +
@@ -138,9 +129,127 @@ p <- ggplot() +
   geom_col(aes(y = celltype, x = n_rep, fill = replication), plot_tab_long, position = position_stack()) +
   geom_text(aes(y = celltype, x = n_rep, label = n_rep, group = replication), plot_tab_long, position = position_stack(vjust = 0.5), size = 4) +
   labs(x = "Number of eQTL", y = "Cell type", fill = "Replicated in:") +
-  # scale_fill_npg(labels = c("GTEx only", "Both", "eQTLGen only")) +
   theme_classic() +
   theme(axis.text.y = element_text(size = 10), axis.text.x = element_text(size = 10), legend.position = "top")
 
 plot_save_to <- file.path(proj_dir, "outputs/pseudo_bulk/replication/normal.replication.bar_plot.pdf")
 ggsave(plot_save_to, plot = p, height = 3.5, width = 7)
+
+
+
+#
+## Concordance
+#
+evar_tab <- fread(file.path(proj_dir, "outputs/pseudo_bulk/overview/filtered.eGene_eVariants.FDR0.05.csv"))
+
+# QTL concordance, normal
+tar_qtl <- evar_tab %>% dplyr::filter(condition == "Common") %>% dplyr::pull(QTL) %>% unique()
+cmp_tab <- combn(celltype_vec, 2) %>% t() %>% as.data.frame() %>% dplyr::rename(x = V1, y = V2)
+asso_tab <- lapply(celltype_vec, function(pct) {
+  cat("[I]: Loading summary statistic for", pct, "\n")
+  file.path(proj_dir, "outputs/pseudo_bulk/summary_statistic/normal", pct, "qtl_results_all.txt") %>%
+    data.table::fread(showProgress = FALSE) %>%
+    dplyr::filter(p_value < 0.5) %>%
+    dplyr::mutate(QTL = paste(feature_id, snp_id, sep = "-")) %>%
+    dplyr::filter(QTL %in% tar_qtl) %>%
+    dplyr::mutate(celltype = pct, condition = "Common")
+  }) %>%
+  Reduce(rbind, .)
+
+plot_tab <- apply(cmp_tab, 1, function(vec) {
+  dplyr::mutate(asso_tab, z_score = beta / beta_se) %>%
+    dplyr::select(feature_id, snp_id, celltype, z_score) %>%
+    dplyr::filter(celltype %in% vec) %>%
+    tidyr::pivot_wider(names_from = celltype, values_from = z_score) %>%
+    dplyr::mutate(Celltype_x = vec[1], Celltype_y = vec[2]) %>%
+    dplyr::rename(vec)
+}) %>%
+  Reduce(rbind, .) %>%
+  dplyr::filter(!is.na(x) & !is.na(y)) %>%
+  dplyr::mutate(Celltype_x = factor(Celltype_x, levels = celltype_vec), Celltype_y = factor(Celltype_y, levels = celltype_vec))
+
+p <- ggplot(data = plot_tab) +
+  geom_point(aes(x = x, y = y), size = 0.1, alpha = 0.5) +
+  geom_hline(yintercept = c(1.96, -1.96), linetype = "dotted", color = "red") +
+  geom_vline(xintercept = c(1.96, -1.96), linetype = "dotted", color = "red") +
+  facet_grid(Celltype_x ~ Celltype_y) +
+  labs(x = "Z-score", y = "Z-score") +
+  theme_bw()
+
+file.path(proj_dir, "outputs/pseudo_bulk/concordance/normal/qtl_concordance.pdf") %>% ggsave(plot = p, width= 9, height = 9)
+
+
+# QTL concordance, across interactions per cell type
+tar_qtl <- dplyr::filter(evar_tab, condition %in% comparison_vec) %>% dplyr::pull(QTL) %>% unique()
+cmp_tab <- combn(comparison_vec, 2) %>% t() %>% as.data.frame() %>% dplyr::rename(x = V1, y = V2)
+for (pct in celltype_vec) {
+  asso_tab <- lapply(comparison_vec, function(pcd) {
+    cat("[I]: Loading summary statistic for", pcd, "in", pct, "\n")
+    file.path(proj_dir, "outputs/pseudo_bulk/summary_statistic/interaction", pct, pcd, "qtl_results_all.txt") %>%
+      data.table::fread(showProgress = FALSE) %>%
+      dplyr::filter(p_value < 0.5) %>%
+      dplyr::mutate(QTL = paste(feature_id, snp_id, sep = "-")) %>%
+      dplyr::filter(QTL %in% tar_qtl) %>%
+      dplyr::mutate(celltype = pct, condition = pcd)
+  }) %>%
+    Reduce(rbind, .)
+
+  plot_tab <- apply(cmp_tab, 1, function(vec) {
+    dplyr::mutate(asso_tab, z_score = beta / beta_se) %>%
+      dplyr::select(feature_id, snp_id, condition, z_score) %>%
+      dplyr::filter(condition %in% vec) %>%
+      tidyr::pivot_wider(names_from = condition, values_from = z_score) %>%
+      dplyr::mutate(Condition_x = vec[1], Condition_y = vec[2]) %>%
+      dplyr::rename(vec)
+  }) %>%
+    Reduce(rbind, .) %>%
+    dplyr::filter(!is.na(x) & !is.na(y)) %>%
+    dplyr::mutate(Condition_x = factor(Condition_x, levels = comparison_vec), Condition_y = factor(Condition_y, levels = comparison_vec))
+
+  p <- ggplot(data = plot_tab) +
+    geom_point(aes(x = x, y = y), size = 0.1, alpha = 0.5) +
+    geom_hline(yintercept = c(1.96, -1.96), linetype = "dotted", color = "red") +
+    geom_vline(xintercept = c(1.96, -1.96), linetype = "dotted", color = "red") +
+    facet_grid(Condition_x ~ Condition_y) +
+    labs(x = "Z-score", y = "Z-score") +
+    theme_bw()
+  file.path(proj_dir, "outputs/pseudo_bulk/concordance/interaction", paste(pct, "qtl_concordance.pdf", sep = ".")) %>% ggsave(plot = p, width= 4, height = 4)
+}
+
+
+# QTL concordance, across cell-types per interaction
+tar_qtl <- dplyr::filter(evar_tab, condition %in% comparison_vec) %>% dplyr::pull(QTL) %>% unique()
+cmp_tab <- combn(celltype_vec, 2) %>% t() %>% as.data.frame() %>% dplyr::rename(x = V1, y = V2)
+for (pcd in comparison_vec) {
+  asso_tab <- lapply(celltype_vec, function(pct) {
+    cat("[I]: Loading summary statistic for", pcd, "in", pct, "\n")
+    file.path(proj_dir, "outputs/pseudo_bulk/summary_statistic/interaction", pct, pcd, "qtl_results_all.txt") %>%
+      data.table::fread(showProgress = FALSE) %>%
+      dplyr::filter(p_value < 0.5) %>%
+      dplyr::mutate(QTL = paste(feature_id, snp_id, sep = "-")) %>%
+      dplyr::filter(QTL %in% tar_qtl) %>%
+      dplyr::mutate(celltype = pct, condition = pcd)
+  }) %>%
+    Reduce(rbind, .)
+
+  plot_tab <- apply(cmp_tab, 1, function(vec) {
+    dplyr::mutate(asso_tab, z_score = beta / beta_se) %>%
+      dplyr::select(feature_id, snp_id, celltype, z_score) %>%
+      dplyr::filter(celltype %in% vec) %>%
+      tidyr::pivot_wider(names_from = celltype, values_from = z_score) %>%
+      dplyr::mutate(Celltype_x = vec[1], Celltype_y = vec[2]) %>%
+      dplyr::rename(vec)
+  }) %>%
+    Reduce(rbind, .) %>%
+    dplyr::filter(!is.na(x) & !is.na(y)) %>%
+    dplyr::mutate(Celltype_x = factor(Celltype_x, levels = celltype_vec), Celltype_y = factor(Celltype_y, levels = celltype_vec))
+
+  p <- ggplot(data = plot_tab) +
+    geom_point(aes(x = x, y = y), size = 0.1, alpha = 0.5) +
+    geom_hline(yintercept = c(1.96, -1.96), linetype = "dotted", color = "red") +
+    geom_vline(xintercept = c(1.96, -1.96), linetype = "dotted", color = "red") +
+    facet_grid(Celltype_x ~ Celltype_y) +
+    labs(x = "Z-score", y = "Z-score") +
+    theme_bw()
+  file.path(proj_dir, "outputs/pseudo_bulk/concordance/interaction", paste(pcd, "qtl_concordance.pdf", sep = ".")) %>% ggsave(plot = p, width= 6, height = 6)
+}
