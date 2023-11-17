@@ -1,4 +1,10 @@
 #!/usr/bin/env Rscript
+# File: concordance.r
+# Author: Zhenhua Zhang
+# E-mail: zhenhua.zhang217@gmail.com
+# Created: May 22, 2023
+# Updated: Oct 20, 2023
+
 options(stringsAsFactors = FALSE, datatable.verbose = FALSE, datatable.showProgress = FALSE)
 suppressPackageStartupMessages({
   # MASHR analysis
@@ -193,17 +199,13 @@ exec_mashr <- function(mdata, sig_pval = 5e-2, n_pcs = 5, null_zth = 3, factor =
 
 
 #' Visualization
-plot_mashr <- function(mm, share_factor = 3:8 / 10, override = FALSE, width = 5, height = 5, colrange = c(0, 1), save_to = "./", token = "none") {
+plot_mashr <- function(mm, share_factor = 3:8 / 10, override = FALSE, mode = "normal", width = 5, height = 5, colrange = c(0, 1), save_to = "./", token = "none") {
   # Propotion of (significant) signals shared by each pair of conditions (?)
   col_dict <- c("B" = "#E64B35", "CD4T" = "#4DBBD5", "CD8T" = "#00A087", "NK" = "#3C5488", "Monocytes" = "#F39B7F")
   col_fun_prop <- colorRamp2(colrange, c("gray99", "#2166AC"))
   lapply(share_factor, function(f) {
     plot_path <- file.path(save_to, paste0(token, ".share_factor_", f, ".pdf"))
-    mat <- get_pairwise_sharing(mm, factor = f) %>%
-      (function(mat) {
-         rownames(mat) <- colnames(mat)
-         mat
-      })
+    mat <- get_pairwise_sharing(mm, factor = f) %>% (function(mat) { rownames(mat) <- colnames(mat); mat })
 
     if (!file.exists(plot_path) || override) {
       annotations <- rownames(mat) %>% stringr::str_split(pattern = "\\.", n = 2, simplify = TRUE)
@@ -217,14 +219,13 @@ plot_mashr <- function(mm, share_factor = 3:8 / 10, override = FALSE, width = 5,
           show_annotation_name = c("Celltype" = FALSE), col = list(Celltype = celltypes_col)
         )
       } else {
-        char_vec <- stringr::str_split(row_labels, "_", simplify = TRUE)
+        char_vec <- stringr::str_split(row_labels, "[_.]", simplify = TRUE)
         .time_vec <- char_vec[, 1]
         .stim_vec <- char_vec[, 2]
         row_ann <- HeatmapAnnotation(
           Celltype = celltypes, Stimulation = .stim_vec, Time = .time_vec, which = "row",
           show_annotation_name = c("Celltype" = FALSE, Stimulation = FALSE, Time = FALSE),
-          col = list(Celltype = celltypes_col, Stimulation = c("LPS" = "darkblue", "RPMI" = "darkred"),
-                     Time = c("T0" = "gray", "T3m" = "black"))
+          col = list(Celltype = celltypes_col, Stimulation = c("LPS" = "darkblue", "RPMI" = "darkred"), Time = c("T0" = "gray", "T3m" = "black"))
         )
       }
       col_ann <- HeatmapAnnotation(
@@ -282,7 +283,7 @@ fdr <- 0.05
 token <- paste0("fdr", fdr)
 max_npv <- 0.1
 
-plot_size <- data.frame(normal = c(width = 4.5, height = 3.25), per_condition = c(width = 7, height = 5.5))
+plot_size <- data.frame(normal = c(width = 4.5, height = 3.25), per_condition = c(width = 7, height = 5.5), interaction = c(width = 7.5, height = 5.5))
 for (mode in mode_vec) {
   save_to <- file.path(proj_dir, "outputs/pseudo_bulk/mashr", mode)
   if (!dir.exists(save_to)) dir.create(save_to, recursive = TRUE)
@@ -302,9 +303,15 @@ for (mode in mode_vec) {
           cat("[W]: No top QTL results available for", .run_id, "Skipping ...\n")
       } else if (mode == "interaction") {
         for (per_cmp in condition_vec) {
-          root_dir <- file.path(in_dir, mode, per_celltype, per_condition)
+          root_dir <- file.path(in_dir, mode, per_celltype, per_cmp)
+          .run_id <- paste(per_celltype, per_cmp, sep = ".")
+
+          cat("[I]: Loading summary statistic from", root_dir, "\n")
+          if (file.exists(file.path(root_dir, "top_qtl_results_all_FDR.txt")))
+            qtltab_list[[.run_id]] <- load_eqtl_tab(root_dir, max_p_val = 5e-1)
+          else
+            cat("[W]: No top QTL results available for", .run_id, "Skipping ...\n")
         }
-        next
       } else if (mode == "per_condition") {
         new_cols <- c("p_value" = "nom_pval", "beta" = "slope", "beta_se" = "slope_se")
         root_dir <- file.path(in_dir, mode)
@@ -339,6 +346,6 @@ for (mode in mode_vec) {
   ph <- plot_size["height", mode]
   shared_signals <- plot_mashr(
     mashr_res$alter_model, seq(0, 9) / 10, override = TRUE, width = pw, height = ph,
-    colrange = c(0, 1.1), save_to = save_to, token = mode
+    colrange = c(0, 1.1), save_to = save_to, token = mode, mode = mode
   )
 }

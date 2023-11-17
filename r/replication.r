@@ -50,90 +50,91 @@ if (!file.exists(save_to) || overwrite) {
     dplyr::filter(condition == "common") %>%
     dplyr::select(dplyr::all_of(eqtl_cols))
 
-  comb_tab <- dplyr::left_join(eqtl_tab, eqtl_gen_tab, by = c("gene_id", "snp_id"), suffix = c(".eqtl", ""))
+  comb_tab <- dplyr::left_join(eqtl_tab, eqtl_gen_tab, by = c("gene_id", "snp_id"), suffix = c(".eqtl", ".eqtlgen"))
 
   comb_tab %>% data.table::fwrite(save_to)
 } else {
   comb_tab <- fread(save_to)
 }
 
+
 # Number of replicated eVariants
-plot_tab <- rep_tab %>%
+plot_tab <- comb_tab %>%
+  dplyr::mutate(eqtlgen.rep = !is.na(p_value.eqtlgen) & (beta.eqtl * beta.eqtlgen > 0 & assessed_allele.eqtlgen == assessed_allele.eqtl) | (beta.eqtl * beta.eqtlgen < 0 & assessed_allele.eqtlgen != assessed_allele.eqtl)) %>%
   dplyr::filter(!is.na(p_value.eqtlgen)) %>%
   dplyr::group_by(celltype) %>%
-  dplyr::summarise(
-    `eVariants` = n(),
-    `Replicated` = sum(eqtlgen.rep),
-    `Non-replicated` = `eVariants` - `Replicated`
-  ) %>%
+  dplyr::summarise(`eVariants` = n(), `Replicated` = sum(eqtlgen.rep), `Non-replicated` = `eVariants` - `Replicated`) %>%
   tidyr::pivot_longer(cols = c(`Non-replicated`, `Replicated`), names_to = "Category", values_to = "Counts") %>%
   dplyr::mutate(celltype = factor(celltype, celltype_vec)) %>%
   dplyr::mutate(
     Percent = Counts / `eVariants` * 100,
-    label = paste0(Counts, "(", round(Percent, 1), "%)"),
+    label = paste0(formatC(Counts, big.mark = ",", format = "d", width = 6), " (", round(Percent, 1), "%)"),
     label = dplyr::if_else(Category == "Non-replicated", "", label)
   ) %>%
   dplyr::mutate(Category = factor(Category, c("Replicated", "Non-replicated")))
 
 p <- plot_tab %>%
   ggplot() +
-  geom_bar(aes(x = celltype, y = Percent, fill = Category), stat = "identity", position = "stack") +
-  geom_text(aes(x = celltype, y = Percent/2, label = label), position = "stack") +
+  geom_bar(aes(y = celltype, x = Percent, fill = Category), stat = "identity", position = "stack") +
+  geom_text(aes(y = celltype, x = 25, label = label), position = "stack") +
   scale_fill_npg() +
-  labs(x = "Cell type", y = "Percentage") +
+  labs(y = "Cell type", x = "Percentage") +
   theme_classic() +
-  theme(legend.position = "top") +
-  coord_flip()
+  theme(legend.position = "top")
 
 plot_save_to <- file.path(proj_dir, "outputs/pseudo_bulk/replication/normal.replication.by_existing_evariant.bar_plot.pdf")
 ggsave(plot_save_to, plot = p, height = 3, width = 5)
 
+
 # Concordance of eVariants
-plot_tab <- rep_tab %>%
+plot_tab <- comb_tab %>%
   dplyr::filter(!is.na(p_value.eqtlgen)) %>%
   dplyr::mutate(beta.eqtlgen = dplyr::if_else(assessed_allele.eqtl == assessed_allele.eqtlgen, beta.eqtlgen, -beta.eqtlgen)) %>%
   dplyr::mutate(beta.eqtlgen = sign(beta.eqtlgen) * log10(abs(beta.eqtlgen))) %>%
   dplyr::mutate(beta.eqtl = beta.eqtl / beta_se, celltype = factor(celltype, celltype_vec))
 
 p <- plot_tab %>%
-  ggplot(aes(x = beta.eqtlgen, y = beta.eqtl)) +
+  ggplot(aes(y = beta.eqtlgen, x = beta.eqtl)) +
   geom_point(alpha = 0.5, size = 0.5) +
-  facet_wrap(~celltype, nrow = 1) +
-  geom_vline(xintercept = c(log10(1.96), -log10(1.96)), color = "red", linetype = "dotted") +
-  geom_vline(xintercept = 0) +
-  geom_hline(yintercept = c(1.96, -1.96), color = "red", linetype = "dotted") +
+  geom_hline(yintercept = c(log10(1.96), -log10(1.96)), color = "red", linetype = "dotted") +
   geom_hline(yintercept = 0) +
-  labs(x = "-log10(abs(Z-score)) in eQTLGen", y = "Z-score in sc-eQTL") +
+  geom_vline(xintercept = c(1.96, -1.96), color = "red", linetype = "dotted") +
+  geom_vline(xintercept = 0) +
+  labs(y = "Sign(Z-score) * Log10(abs(Z-score)) in eQTLGen", x = "Z-score in sc-eQTL") +
+  facet_wrap(~ celltype, ncol = 1) +
   theme_bw()
 
 plot_save_to <- file.path(proj_dir, "outputs/pseudo_bulk/replication/normal.concordance.by_existing_evariant.point_plot.pdf")
-ggsave(plot_save_to, plot = p, height = 3, width = 12)
+ggsave(plot_save_to, plot = p, height = 12, width = 3)
 
 
 # Replication rate
 plot_tab <- comb_tab %>%
+  dplyr::mutate(eqtlgen.rep = !is.na(p_value.eqtlgen) & (beta.eqtl * beta.eqtlgen > 0 & assessed_allele.eqtlgen == assessed_allele.eqtl) | (beta.eqtl * beta.eqtlgen < 0 & assessed_allele.eqtlgen != assessed_allele.eqtl)) %>%
+  dplyr::filter(!is.na(p_value.eqtlgen)) %>%
+  dplyr::group_by(celltype, gene_id) %>%
+  dplyr::summarise(eVariants = n(), Category = dplyr::if_else(sum(eqtlgen.rep) > 0, "Replicated", "Non-replicated")) %>%
   dplyr::group_by(celltype) %>%
-  dplyr::summarise(
-    n_total = n(),
-    n_rep_either = sum(either.replication %in% c("RF", "RS")),
-    rep_ratio = n_rep_either / n_total * 100, rep_ratio_lab = paste0(n_total, " (" , round(rep_ratio, 1), "%)")
-  ) %>%
-  dplyr::mutate(celltype = forcats::fct_reorder(celltype, n_total, .desc = TRUE))
+  dplyr::summarise(n_total = n(), Yes = sum(Category == "Replicated"), No = sum(Category == "Non-replicated")) %>%
+  dplyr::mutate(celltype = factor(celltype, celltype_vec)) %>%
+  tidyr::pivot_longer(c(Yes, No), names_to = "Category", values_to = "Counts") %>%
+  dplyr::mutate(
+    Percentage = as.double(Counts) / n_total * 100,
+    Label = paste0(formatC(Counts, big.mark = ",", format = "d", width = 6), " (", round(Percentage, 1), "%)"),
+    Category = factor(Category, c("Yes", "No"))
+  )
 
-plot_tab_long <- plot_tab %>%
-  tidyr::pivot_longer(cols = c("n_rep_eqtlgen"), names_to = "replication", values_to = "n_rep")
-
-p <- ggplot() +
-  geom_col(aes(y = celltype, x = n_total), plot_tab, fill = "gray") +
-  geom_label(aes(y = celltype, x = 600, label = rep_ratio_lab), plot_tab, position = position_stack(vjust = 0.85), size = 4) +
-  geom_col(aes(y = celltype, x = n_rep, fill = replication), plot_tab_long, position = position_stack()) +
-  geom_text(aes(y = celltype, x = n_rep, label = n_rep, group = replication), plot_tab_long, position = position_stack(vjust = 0.5), size = 4) +
-  labs(x = "Number of eQTL", y = "Cell type", fill = "Replicated in:") +
+p <- ggplot(data = plot_tab) +
+  geom_col(aes(x = celltype, y = Counts, fill = Category), position = position_dodge2(width = 1)) +
+  geom_text(aes(x = celltype, y = 0, label = Label), hjust = 0, position = position_dodge2(width = 1)) +
+  labs(x = "Cell type", y = "Number of eGenes", fill = "Replicated in eQTLGen") +
+  scale_fill_npg() +
   theme_classic() +
-  theme(axis.text.y = element_text(size = 10), axis.text.x = element_text(size = 10), legend.position = "top")
+  theme(legend.position = "top") +
+  coord_flip()
 
-plot_save_to <- file.path(proj_dir, "outputs/pseudo_bulk/replication/normal.replication.bar_plot.pdf")
-ggsave(plot_save_to, plot = p, height = 3.5, width = 7)
+plot_save_to <- file.path(proj_dir, "outputs/pseudo_bulk/replication/normal.replication.by_existing_egene.bar_plot.pdf")
+ggsave(plot_save_to, plot = p, height = 4, width = 6)
 
 
 
@@ -143,7 +144,7 @@ ggsave(plot_save_to, plot = p, height = 3.5, width = 7)
 evar_tab <- fread(file.path(proj_dir, "outputs/pseudo_bulk/overview/filtered.eGene_eVariants.FDR0.05.csv"))
 
 # QTL concordance, normal
-tar_qtl <- evar_tab %>% dplyr::filter(condition == "Common") %>% dplyr::pull(QTL) %>% unique()
+tar_qtl <- evar_tab %>% dplyr::filter(condition == "common") %>% dplyr::pull(QTL) %>% unique()
 cmp_tab <- combn(celltype_vec, 2) %>% t() %>% as.data.frame() %>% dplyr::rename(x = V1, y = V2)
 asso_tab <- lapply(celltype_vec, function(pct) {
   cat("[I]: Loading summary statistic for", pct, "\n")
