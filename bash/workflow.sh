@@ -352,3 +352,10 @@ if [[ true ]]; then
     done
   done
 fi
+
+
+# Obtain a list of SNPs that are allelicly bound to eVariants of CD55
+eqtl_tab=$proj_dir/outputs/pseudo_bulk/overview/filtered.eGene_eVariants.FDR0.05.csv
+head -1 ${eqtl_tab} | tr "," "\n" | cat -n
+grep -wf <(awk -F, 'NR==1 || ($15 == "common" && $14 == "Monocytes" && $6 == "CD55") {print $1}' ${eqtl_tab} | sort -u) ../../../../inputs/ADASTRA/TF/*.tsv \
+  | awk '($15 < 0.05 || $16 < 0.05) && ($15 != "" && $16 != "") {print}' >| CD55_allelic_bound_SNPs.tsv

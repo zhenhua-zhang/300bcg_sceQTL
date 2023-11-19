@@ -9,6 +9,7 @@ misc/
 **/*.ipynb
 **/*.simg
 **/*.bk
+check_list.txt
 
 #
 ## R lang
