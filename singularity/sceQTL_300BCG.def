@@ -1,0 +1,123 @@
+Bootstrap: library
+From: ubuntu:18.04
+
+%setup
+  mkdir -p ${SINGULARITY_ROOTFS}/opt/ProxyFinder
+  mkdir -p ${SINGULARITY_ROOTFS}/opt/GoShifter_LD
+
+
+%environment
+  export LC_ALL=C
+
+
+%post
+  # Install required packages
+  apt-get update
+  apt-get install -y zip gcc curl default-jre python2.7 python-dev zlib1g-dev
+
+  ## As system-wide Python2.7
+  ln -fs /usr/bin/python2.7 /usr/bin/python
+
+  ## Install pip
+  curl https://bootstrap.pypa.io/pip/2.7/get-pip.py -o get-pip.py
+  python get-pip.py
+
+  ## Install bx-python, it is important to compile the package from the source.
+  pip install --no-binary bx-python bx-python
+
+  # Download packages: GoShifter, ProxyFinder
+  ## GoShifter (version 0.3)
+  curl -SsL -o /opt/GoShifter-0.3.zip \
+    https://github.com/immunogenomics/goshifter/archive/refs/tags/0.3.zip
+  unzip /opt/GoShifter-0.3.zip -d /opt
+  ln -fs /opt/goshifter-0.3/goshifter.py /usr/bin
+  ln -fs /opt/goshifter-0.3/goshifter.strat.py /usr/bin
+
+  ## ProxyFinder (version 0.2)
+  curl -SsL -o /opt/ProxyFinder/ProxyFinder-0.2.jar \
+    https://github.com/immunogenomics/harmjan/releases/download/0.2/ProxyFinder-0.2.jar
+
+  # Download precalculated LD matrix
+  ## https://figshare.com/articles/Data_for_GoShifter/9857327
+  curl -SsL -o /opt/GoShifter_LD/1kg_LD.zip \
+    https://ndownloader.figshare.com/articles/9857327/versions/1
+  unzip /opt/GoShifter_LD/1kg_LD.zip -d /opt/GoShifter_LD
+
+  # Clean up
+  apt-get clean
+  apt-get autoremove
+  rm -f /opt/GoShifter_LD/1kg_LD.zip
+  rm -f /opt/GoShifter-0.3.zip
+
+
+%labels
+  Author: Zhenhua Zhang
+  E-mail: zhenhua.zhang217@gmail.com
+  Version: v0.1.0
+
+
+%help
+  A container to perform enrichment analysis of annotations in GWAS loci using
+  GoShifter (Trynka G, et al., 2015, AJHG). For more information, please check
+  the website (http://www.broadinstitute.org/mpg/goshifter). The container
+  enclosed GoShifter under Python 2.7 and a dataset including pair-wised LD
+  information (/opt/GoShifter_LD) hosted at Figshare, for more information
+  check https://figshare.com/articles/Data_for_GoShifter/9857327. The user can
+  also calculate their own LD information by ProxyFinder which was also enclosed
+  in the container, for more information check its GitHub repository at
+  https://github.com/immunogenomics/harmjan
+
+  Example:
+  1. Get GoShifter help
+    singularity exec goshifter.simg goshifter.py -h
+    """
+    Usage:
+      ./goshifter.py --snpmap FILE --annotation FILE --permute INT [--ld DIR
+      --proxies FILE] --out FILE [--rsquared NUM --window NUM --min-shift NUM
+      --max-shift NUM --ld-extend NUM --no-ld]
+
+    Options:
+      -h, --help              Print this message and exit.
+      -v, --version           Print the version and exit.
+
+      -s, --snpmap FILE       File with SNP mappings, tab delimited, must
+                              include header: SNP, CHR, BP. Chromosomes in
+                              format chrN.
+      -a, --annotation FILE   File with annotations, bed format. No header.
+      -p, --permute INT       Number of permutations.
+      -i, --proxies FILE      File with proxy information for snps in --snpmap
+                              takes precedence over --ld
+      -l, --ld DIR            Directory with LD files
+      
+      -r, --rsquared NUM      Include LD SNPs at rsquared >= NUM [default: 0.8]
+      -w, --window NUM        Window size to find LD SNPs [default: 5e5]
+      -n, --min-shift NUM     Minimum shift [default: False]
+      -x, --max-shift NUM     Maximum shift [default: False]
+      -e, --ld-extend NUM     Fixed value by which to extend LD boundries
+                              [default: False]
+      -n, --no-ld             Do not include SNPs in LD [default: False]
+
+      -o, --out FILE          Write output file.
+    """
+
+  2. Run GoShifter basic mode which tests for enrichment of a provided set of
+  SNPs with one genomic annotation of interest.
+    singularity exec goshifter.simg goshifter.py \
+      --snpmap /opt/goshifter-0.3/test_data/bc.snpmappings.hg19.txt \
+      --annotation /opt/goshifter-0.3/test_data/UCSF-UBC.Breast_vHMEC.bed.gz \
+      --permute 1000 \
+      --ld /opt/GoShifter_LD \
+      --out H3K4me1_vHMEC3
+
+  3. Run GoShifter stratifying mode which tests for the significance of an
+  overlap of a provided set of SNPs with annotation A stratifying on secondary,
+  possibly colocalizing annotation B.
+    singularity exec goshifter.simg goshifter.strat.py \
+      --snpmap /opt/goshifter-0.3/test_data/bc.snpmappings.hg19.txt \
+      --annotation-a /opt/goshifter-0.3/test_data/UCSFUBC.Breast_vHMEC.bed.gz \
+      --annotation-b /opt/goshifter-0.3/test_data/UCSFUBC.Breast_Myoepithelial_Cells.bed.gz \
+      --permute 1000 \
+      --ld /opt/GoShifter_LD/ \
+      --out bc.H3K4me1_vHMEC_strat_Myoepithelial_Cells
+
+  For more information is available at https://github.com/immunogenomics/goshifter
