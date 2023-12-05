@@ -103,9 +103,9 @@ for (pct in celltype_vec) {
   }
 }
 
-Reduce(rbind, qtl_tab) %>%
+qtl_tab <- Reduce(rbind, qtl_tab) %>%
   dplyr::arrange(snp_chromosome, snp_position, feature_id) %>%
-  as.data.frame() %>%
-  data.table::fwrite(file.path(proj_dir, "outputs/pseudo_bulk/overview/filtered.eGene_eVariants.FDR0.05.v3.csv"))
+  as.data.frame()
+qtl_tab %>% data.table::fwrite(file.path(proj_dir, "outputs/pseudo_bulk/overview/filtered.eGene_eVariants.FDR0.05.v3.csv"))
 
 qtl_tab <- Reduce(rbind, qtl_tab) %>% dplyr::arrange(snp_chromosome, snp_position, feature_id) %>% as.data.frame()
