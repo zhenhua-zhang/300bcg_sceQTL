@@ -1,123 +1,176 @@
 Bootstrap: library
-From: ubuntu:18.04
+From: ubuntu:20.04
 
 %setup
-  mkdir -p ${SINGULARITY_ROOTFS}/opt/ProxyFinder
-  mkdir -p ${SINGULARITY_ROOTFS}/opt/GoShifter_LD
-
+  # pwd
 
 %environment
   export LC_ALL=C
 
-
 %post
-  # Install required packages
-  apt-get update
-  apt-get install -y zip gcc curl default-jre python2.7 python-dev zlib1g-dev
+  # Create destination and temporary folder.
+  mkdir -p /opt/temp /opt/tools
 
-  ## As system-wide Python2.7
-  ln -fs /usr/bin/python2.7 /usr/bin/python
+  # Refresh the apt repository
+  apt update -qq
 
-  ## Install pip
-  curl https://bootstrap.pypa.io/pip/2.7/get-pip.py -o get-pip.py
-  python get-pip.py
+  # Install tzdata but in a non-interactive mode
+  echo 8 > /opt/temp/input.txt
+  echo 1 >> /opt/temp/input.txt
+  apt install -y tzdata < /opt/temp/input.txt
+  echo Europe/Amsterdam > /etc/timezone
+  ln -fs /usr/share/zoneinfo/Europe/Amsterdam /etc/localtime
 
-  ## Install bx-python, it is important to compile the package from the source.
-  pip install --no-binary bx-python bx-python
+  # Install required tools
+  apt install -y --no-install-recommends wget gcc g++ gdb gfortran git gzip zip make cmake autoconf automake \
+    libbz2-dev liblzma-dev libncurses5-dev libreadline-dev libssl-dev libffi-dev zlib1g-dev libpcre2-dev \
+    libcurl4-openssl-dev libfontconfig1-dev libgit2-dev libharfbuzz-dev libfribidi-dev libfreetype6-dev \
+    libpng-dev libtiff5-dev libjpeg-dev libxml2-dev
 
-  # Download packages: GoShifter, ProxyFinder
-  ## GoShifter (version 0.3)
-  curl -SsL -o /opt/GoShifter-0.3.zip \
-    https://github.com/immunogenomics/goshifter/archive/refs/tags/0.3.zip
-  unzip /opt/GoShifter-0.3.zip -d /opt
-  ln -fs /opt/goshifter-0.3/goshifter.py /usr/bin
-  ln -fs /opt/goshifter-0.3/goshifter.strat.py /usr/bin
+  # # Install bcftools
+  # mkdir -p /opt/tools/bcftools/1.12
+  # wget -cO /opt/temp/bcftools-1.12.tar.bz2 https://github.com/samtools/bcftools/releases/download/1.12/bcftools-1.12.tar.bz2
+  # tar xf /opt/temp/bcftools-1.12.tar.bz2 -C /opt/temp
+  # cd /opt/temp/bcftools-1.12
+  # ./configure --prefix=/opt/tools/bcftools/1.12
+  # make && make install
+  # ln -s /opt/tools/bcftools/1.12/bin/bcftools /usr/local/bin/bcftools
 
-  ## ProxyFinder (version 0.2)
-  curl -SsL -o /opt/ProxyFinder/ProxyFinder-0.2.jar \
-    https://github.com/immunogenomics/harmjan/releases/download/0.2/ProxyFinder-0.2.jar
+  # # Install PLINK1.9
+  # mkdir -p /opt/tools/plink/1.9
+  # wget -cO /opt/temp/plink_linux_x86_64_20220402.zip https://s3.amazonaws.com/plink1-assets/plink_linux_x86_64_20220402.zip
+  # unzip /opt/temp/plink_linux_x86_64_20220402.zip -d /opt/tools/plink/1.9
+  # ln -s /opt/tools/plink/1.9/plink /usr/local/bin/plink1.9
 
-  # Download precalculated LD matrix
-  ## https://figshare.com/articles/Data_for_GoShifter/9857327
-  curl -SsL -o /opt/GoShifter_LD/1kg_LD.zip \
-    https://ndownloader.figshare.com/articles/9857327/versions/1
-  unzip /opt/GoShifter_LD/1kg_LD.zip -d /opt/GoShifter_LD
+  # # Install Python 3.9.6
+  # wget --no-check-certificate -cO /opt/temp/Python-3.9.6.tgz https://www.python.org/ftp/python/3.9.6/Python-3.9.6.tgz
+  # tar xf /opt/temp/Python-3.9.6.tgz -C /opt/temp
+  # cd /opt/temp/Python-3.9.6
+  # ./configure --prefix=/opt/tools/Python/3.9.6 --enable-optimizations
+  # make && make install
+  # ln -s /opt/tools/Python/3.9.6/bin/python3 /usr/local/bin/python3
+  # ln -s /opt/tools/Python/3.9.6/bin/pip3.9 /usr/local/bin/pip3.9
+  # ln -s /opt/tools/Python/3.9.6/bin/pip3 /usr/local/bin/pip3
+
+  # wget --no-check-certificate -cO /opt/temp/Python-3.9.6.tgz https://www.python.org/ftp/python/3.9.6/Python-3.9.6.tgz
+  # tar xf /opt/temp/Python-3.9.6.tgz -C /opt/temp
+  # cd /opt/temp/Python-3.9.6
+  # ./configure --prefix=/opt/tools/Python/3.9.6 --enable-optimizations
+  # make && make install
+  # ln -s /opt/tools/Python/3.9.6/bin/python3 /usr/local/bin/python3
+  # ln -s /opt/tools/Python/3.9.6/bin/pip3.9 /usr/local/bin/pip3.9
+  # ln -s /opt/tools/Python/3.9.6/bin/pip3 /usr/local/bin/pip3
+
+  # # Install python pip
+  # python3 -m pip install --upgrade "setuptools<58" "wheel==0.33.4" "numpy==1.26.2" "scipy==1.10.0" "matplotlib==3.8.2" \
+  #   "pandas==2.1.3" "pysam==0.18.0" "pyvcf==0.6.8" "pyfaidx==0.5.8" "pystan==2.19.1.1"
+
+  # Install R 4.2.0
+  wget --no-check-certificate -cO /opt/temp/R-4.2.0.tar.gz https://cran.r-project.org/src/base/R-4/R-4.2.0.tar.gz
+  tar xf /opt/temp/R-4.2.0.tar.gz -C /opt/temp
+  cd /opt/temp/R-4.2.0
+  ./configure --prefix=/opt/tools/R/4.2.0 --with-x=no
+  make && make install
+  ln -s /opt/tools/R/4.2.0/bin/R /usr/local/bin/R
+  ln -s /opt/tools/R/4.2.0/bin/Rscript /usr/local/bin/Rscript
+
+  # Install R packages, package installation order may affect the versions.
+  /usr/local/bin/R -q --vanilla <<EOF
+options(repos = c(CRAN = "http://cran.r-project.org"))
+install.packages('remotes')
+remotes::install_version('tidyverse', version = '1.3.2', upgrade = 'never')
+remotes::install_version('coloc', version = '5.1.0.1', upgrade = 'never')
+remotes::install_version('mashr', version = '0.2.57', upgrade = 'never')
+remotes::install_version('spatstat.core', version = '2.4-4', upgrade = 'never') # Archived package, using latest version.
+remotes::install_version('BH', version = '1.78.0.0', upgrade = 'never')
+remotes::install_version('Seurat', version = '4.1.1', upgrade = 'never')
+remotes::install_github('ChangSuBiostats/CS-CORE', ref = 'v1.0.1', upgrade = 'never')
+remotes::install_github('MRCIEU/TwoSampleMR', ref = 'v0.5.6', upgrade = 'never')
+remotes::install_version('BiocManager', version = '1.30.15', upgrade = 'never')
+BiocManager::install('ComplexHeatmap', version = '3.15', force = TRUE) # 2.12.1
+BiocManager::install('Gviz', version = '3.15', force = TRUE) # 1.40.1
+BiocManager::install('SingleR', version = '3.15', force = TRUE) # 1.10.0
+EOF
+
+  # # install PEER from source.
+  # mkdir -p /opt/temp/gcc-4.9.0
+  # wget -cO /opt/temp/gcc-4.9.0/gcc-4.9.0.tar.bz2 https://ftp.gnu.org/gnu/gcc/gcc-4.9.0/gcc-4.9.0.tar.bz2
+  # tar xf -C /opt/temp/gcc-4.9.0/src /opt/temp/gcc-4.9.0/gcc-4.9.0.tar.bz2 
+  # 
+  # cd /opt/temp/gcc-4.9.0/src
+  # ./configure --prefix /opt/tools/gcc-4.9
+  # make && make install
+  # 
+  # wget -cO /opt/temp/PEER-1.3/R_peer_source_1.3.tgz https://xxxx/R_peer_source_1.3.tgz
+  # R CMD INSTALL /opt/temp/PEER-1.3/R_peer_source_1.3.tgz
+
+  # Install souporcell
+  # Install hisat2 (belongs to souporcell pipeline)
+  mkdir -p /opt/tools/hisat2 /opt/temp/hisat2
+  wget --no-check-certificate -cO /opt/temp/hisat2.zip https://cloud.biohpc.swmed.edu/index.php/s/oTtGWbWjaxsQ2Ho/download
+  unzip /opt/temp/hisat2.zip
+
+  wget https://github.com/lh3/minimap2/releases/download/v2.26/minimap2-2.26_x64-linux.tar.bz2
+  tar -xf minimap2-2.26_x64-linux.tar.bz2
+  cd ..
+  wget https://github.com/arq5x/bedtools2/releases/download/v2.28.0/bedtools-2.28.0.tar.gz
+  tar -xf bedtools-2.28.0.tar.gz
+  cd bedtools2
+  make
+
+  CARGO_HOME=/opt/tools/.cargo
+  RUSTUP_HOME=/opt/tools/.cargo
+  bash -c 'curl https://sh.rustup.rs -sSf | sh -s -- -y'
+  . /opt/tools/.cargo/env
+  which cargo
+  rustup default stable
+  apt-get -y install git
+  cd /opt
+  git clone --recursive https://github.com/wheaton5/souporcell.git
+  cd souporcell/troublet
+  cargo build --release
+  cd /opt/souporcell/souporcell
+  cargo build --releasestall pysam
+
+  # Install freebayes (belongs to souporcell pipeline)
+  mkdir -p /opt/tools/freebayes /opt/temp/freebayes
+  wget --no-check-certificate -cO /opt/temp/freebayes/freebayes-1.3.6-linux-amd64-static.gz https://github.com/freebayes/freebayes/releases/download/v1.3.6/freebayes-1.3.6-linux-amd64-static.gz
+  gunzip /opt/temp/freebayes/freebayes-1.3.6-linux-amd64-static.gz
+  mv /opt/temp/freebayes/freebayes-1.3.6-linux-amd64-static.gz /opt/tools/freebayes/
+  chmod 777 /opt/tools/freebayes/freebayes
+  ln -s /opt/tools/freebayes/freebayes /usr/local/bin/freebayes
+
+  # Install vartrix (belongs to souporcell pipeline)
+  mkdir -p /opt/tools/vartrix /opt/temp/vartrix
+  wget --no-check-certificate -cO /opt/temp/vartrix/vartrix_linux https://github.com/10XGenomics/vartrix/releases/download/v1.1.22/vartrix_linux
+  mv /opt/temp/vartrix/vartrix_linux /opt/temp/vartrix/vartrix
+  chmod 777 /opt/temp/vartrix/vartrix
+
+  # # Clone the repositories
+  # git clone https://github.com/
+
+
+  # # Install limix_qtl
+  # git clone https://github.com/xxx
+
+  # # Install SMR
+  # 
+
+  # # A bash script to setup working space
+  # echo -e '#!/usr/bin/env bash' >> /opt/tools/setup_workspace.sh
+  # echo -e ''
 
   # Clean up
   apt-get clean
   apt-get autoremove
-  rm -f /opt/GoShifter_LD/1kg_LD.zip
-  rm -f /opt/GoShifter-0.3.zip
-
+  rm -fr /opt/temp
 
 %labels
   Author: Zhenhua Zhang
   E-mail: zhenhua.zhang217@gmail.com
   Version: v0.1.0
 
-
 %help
-  A container to perform enrichment analysis of annotations in GWAS loci using
-  GoShifter (Trynka G, et al., 2015, AJHG). For more information, please check
-  the website (http://www.broadinstitute.org/mpg/goshifter). The container
-  enclosed GoShifter under Python 2.7 and a dataset including pair-wised LD
-  information (/opt/GoShifter_LD) hosted at Figshare, for more information
-  check https://figshare.com/articles/Data_for_GoShifter/9857327. The user can
-  also calculate their own LD information by ProxyFinder which was also enclosed
-  in the container, for more information check its GitHub repository at
-  https://github.com/immunogenomics/harmjan
+  A container to reproduce the outputs of 300BCG sceQTL project.
 
-  Example:
-  1. Get GoShifter help
-    singularity exec goshifter.simg goshifter.py -h
-    """
-    Usage:
-      ./goshifter.py --snpmap FILE --annotation FILE --permute INT [--ld DIR
-      --proxies FILE] --out FILE [--rsquared NUM --window NUM --min-shift NUM
-      --max-shift NUM --ld-extend NUM --no-ld]
-
-    Options:
-      -h, --help              Print this message and exit.
-      -v, --version           Print the version and exit.
-
-      -s, --snpmap FILE       File with SNP mappings, tab delimited, must
-                              include header: SNP, CHR, BP. Chromosomes in
-                              format chrN.
-      -a, --annotation FILE   File with annotations, bed format. No header.
-      -p, --permute INT       Number of permutations.
-      -i, --proxies FILE      File with proxy information for snps in --snpmap
-                              takes precedence over --ld
-      -l, --ld DIR            Directory with LD files
-      
-      -r, --rsquared NUM      Include LD SNPs at rsquared >= NUM [default: 0.8]
-      -w, --window NUM        Window size to find LD SNPs [default: 5e5]
-      -n, --min-shift NUM     Minimum shift [default: False]
-      -x, --max-shift NUM     Maximum shift [default: False]
-      -e, --ld-extend NUM     Fixed value by which to extend LD boundries
-                              [default: False]
-      -n, --no-ld             Do not include SNPs in LD [default: False]
-
-      -o, --out FILE          Write output file.
-    """
-
-  2. Run GoShifter basic mode which tests for enrichment of a provided set of
-  SNPs with one genomic annotation of interest.
-    singularity exec goshifter.simg goshifter.py \
-      --snpmap /opt/goshifter-0.3/test_data/bc.snpmappings.hg19.txt \
-      --annotation /opt/goshifter-0.3/test_data/UCSF-UBC.Breast_vHMEC.bed.gz \
-      --permute 1000 \
-      --ld /opt/GoShifter_LD \
-      --out H3K4me1_vHMEC3
-
-  3. Run GoShifter stratifying mode which tests for the significance of an
-  overlap of a provided set of SNPs with annotation A stratifying on secondary,
-  possibly colocalizing annotation B.
-    singularity exec goshifter.simg goshifter.strat.py \
-      --snpmap /opt/goshifter-0.3/test_data/bc.snpmappings.hg19.txt \
-      --annotation-a /opt/goshifter-0.3/test_data/UCSFUBC.Breast_vHMEC.bed.gz \
-      --annotation-b /opt/goshifter-0.3/test_data/UCSFUBC.Breast_Myoepithelial_Cells.bed.gz \
-      --permute 1000 \
-      --ld /opt/GoShifter_LD/ \
-      --out bc.H3K4me1_vHMEC_strat_Myoepithelial_Cells
-
-  For more information is available at https://github.com/immunogenomics/goshifter
+  Contact: zhenhua.zhang217@gmail.com
